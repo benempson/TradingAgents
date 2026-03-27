@@ -135,7 +135,21 @@ WAVE 2/3: EXECUTION
 
 ---
 
-## D. FILE OWNERSHIP MAP
+## D. FILE OWNERSHIP MAP & PLAN HEADER
+
+### Plan Header Requirements
+
+All `IMPLEMENTATION_PLAN-*.md` files MUST include a `> Routing:` line in the header so that resume logic can detect the correct execution mode:
+
+```
+> Target Spec: docs/specs/[area]/[filename-spec.md]
+> Routing: [Inline|Orchestrator] (Score N/4)
+> Wave: 2 of 3                                      ← Orchestrator Mode only; updated after each wave
+```
+
+The `> Routing:` line is read by resume logic (Step 2 of implement-spec, Step 5 of update-spec) to determine whether to resume in Inline or Orchestrator mode. Without it, Orchestrator Mode work may incorrectly resume as Inline Mode after a session reset.
+
+### File Ownership Map
 
 Before each Execution Wave, the orchestrator MUST build a file ownership map and enforce these rules:
 
@@ -198,3 +212,38 @@ After all execution waves complete and tests pass, the orchestrator:
 1. Collects the list of every file modified by any Implementor agent.
 2. Reads each modified file.
 3. Performs the Rule 13 adversarial review against the complete change set.
+
+---
+
+## H. MID-FLIGHT REASSESSMENT
+
+During Inline Mode execution, the initial complexity assessment may become stale as the actual scope is revealed.
+
+### Trigger
+
+After completing **50% of plan items**, check:
+- Count the number of distinct source files actually modified so far (via `git diff --name-only` or by tracking edits).
+- Compare against the original **File Radius** estimate from the complexity assessment.
+
+### Action
+
+If the actual file count exceeds the original estimate by **2 or more files**:
+
+1. **Pause** the execution loop.
+2. **Emit** an updated complexity assessment:
+   ```
+   MID-FLIGHT REASSESSMENT
+     Original File Radius: N files
+     Actual files touched:  M files (+D over estimate)
+     Remaining items:       K unchecked
+     RECOMMENDATION:        [Continue Inline | Switch to Orchestrator]
+   ```
+3. **If switching is recommended** (remaining items span 2+ independent groups): Offer to switch to Orchestrator Mode. If the user accepts:
+   - Update the plan file header: `> Routing: Orchestrator (upgraded mid-flight)`
+   - Add a `## Parallel Groups` section for the remaining unchecked items.
+   - Proceed to the Orchestrator execution loop (Step 3b / 6b in the parent workflow).
+4. **If continuing Inline** is recommended (remaining items are sequential): Note the reassessment in the plan file and continue.
+
+### Constraint
+
+Do not reassess more than once per workflow execution. One check at the 50% mark is sufficient.

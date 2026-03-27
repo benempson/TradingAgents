@@ -14,14 +14,13 @@ description: Implements new functionality with strict architectural alignment, m
         -   Determine: **Category A (Logic/Flow)** or **Category B (Config/Docs)**.
     -   **Test Strategy:** If Category A, define *where* the test will live (`tests/test_<module>.py`) and *what* the key assertions will be.
 
-2.  **The Proposal (STOP & CONFIRM):**
+2.  **The Proposal:**
     -   **Action:** Present a concise plan to the user containing:
         1.  **Requirement:** "I understand you want to..."
         2.  **Classification:** "Category [A/B] (Testing [Required/Optional])"
         3.  **Architecture:** "I will modify `[File A]`, create `[File B]`..."
         4.  **Test Plan:** "I will test `[Scenario]` in `tests/[test_file].py`."
-    -   **Constraint:** Ask: *"Does this plan align with your intent? (Yes/No)"*
-    -   **Wait:** **STOP** and wait for user confirmation.
+    -   **Conditional Gate:** If the gap analysis in Step 1 found ambiguities or conflicts, ask: *"Does this plan align with your intent? (Yes/No)"* and **STOP** for confirmation. If no ambiguities were found, emit the plan and proceed — the user can still interject with changes.
 
 3.  **Implementation (Code & Test):**
     -   **Action:** Write the source code following the module layer conventions in `AGENTS.md`.
@@ -35,15 +34,7 @@ description: Implements new functionality with strict architectural alignment, m
     -   **IF CATEGORY B:** Confirm the config change has the expected effect.
 
 5.  **Adversarial Security Review (Rule 13):**
-    -   **Persona Switch:** Activate Rule 13 ("The Red Team").
-    -   **Action:** Review the code you just wrote.
-    -   **Challenge:** Attempt to construct a theoretical exploit.
-        -   *Check:* Did we use `shell=True` or string-interpolated subprocess calls?
-        -   *Check:* Are external data values logged or passed through without validation?
-        -   *Check:* Are any credentials or API keys at risk of exposure?
-    -   **Output:**
-        -   If Secure: "Security Review Passed: [Reason]"
-        -   If Vulnerable: "VULNERABILITY FOUND: [Description]. Fixing now..." -> **Loop back to Implementation.**
+    > Follow the protocol in `.ai/workflows/_security-review.md`.
 
 6.  **Regression Check:**
     -   **Execute the full test suite** via the terminal (`python -m pytest tests/`) to ensure no regressions.

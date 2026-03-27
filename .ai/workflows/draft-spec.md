@@ -9,13 +9,7 @@ description: Interactively drafts a structured requirement specification.
     -   **Gap Analysis:** Analyze the user's response. Is it detailed enough to build?
     -   **Action:** If the request is high-level (e.g., "Add a new analyst"), you MUST ask clarifying questions *before* proposing a plan.
         -   *Example:* "Which data vendors does it use? What tools does it call? What does its report look like?"
-    -   **Unhappy Path Probe:** For any feature with async operations, subprocess calls, or external data, walk through this 5-category checklist. For each category, explicitly ask what the fallback behavior or error response should be:
-        1. **Network / API errors** — data vendor timeout, yfinance returning empty DataFrame, rate limit exceeded.
-        2. **LLM errors** — subprocess non-zero exit, JSON parse failure in tool call response, timeout.
-        3. **Empty / zero-result states** — no data returned for a ticker, empty news results, zero indicators.
-        4. **Config / init failures** — missing required config key, unsupported provider, invalid model name.
-        5. **Graph / async failures** — LangGraph recursion limit hit, infinite tool loop, unresponsive agent node.
-    -   **Constraint:** Do not move to Step 2 until every applicable category above has a defined fallback behavior.
+    -   **Unhappy Path Probe:** Follow the 5-category checklist in `.ai/workflows/_unhappy-paths.md`. Do not move to Step 2 until every applicable category has a defined fallback behavior.
 
 2.  **Architectural & Rules Review:**
     -   Read `AGENTS.md` and `PROJECT_SUMMARY.md`.
@@ -50,14 +44,15 @@ description: Interactively drafts a structured requirement specification.
             -   **Recommended Approach:** The orchestrator's recommendation with rationale
             -   **Constraints Discovered:** Hard limits from the codebase (layer separation, TypedDict state, string-only tools, etc.)
             -   **Open Questions:** Anything the research couldn't resolve — these become questions for the user in Step 3
-        5.  **Present** the Research Summary to the user before proceeding to Step 3.
+        5.  **Persist:** Write the Research Summary as a `## Research Summary` section in the spec file (before `## Requirements`). This ensures the research survives session resets and is available to `/implement-spec` later.
+        6.  **Present** the Research Summary to the user before proceeding to Step 3.
     -   **User Override:** If the user says "skip research" or "I already know how to do this", proceed directly to Step 3.
 
 3.  **Drafting (Iterative):**
     -   Propose a **Requirements List** and **Technical Plan** based on `docs/specs/templates/feature-spec.md` (if it exists). Use the Research Summary from Step 2b as the draft foundation — the recommended approach becomes the default technical plan, and discovered constraints become architectural guardrails in the spec.
     -   **Constraint (Unhappy Paths — MANDATORY):** For every happy-path requirement, you MUST enumerate its corresponding failure modes in the spec. Each failure mode must specify: the trigger condition, the expected system response, and whether it requires a log entry or raised exception. Do not write "handle errors gracefully" — name the specific case.
     -   **Constraint (Testing):** You MUST identify the target test files and the key test scenarios. Don't just say "we will test it"; say "we need a test that mocks `subprocess.run` to return a non-zero exit code and verifies `RuntimeError` is raised."
-    -   **Ask:** *"Here is the structured plan. Are there missing requirements, unhandled failure modes, or architectural risks? (Yes/No/Comment)"*
+    -   **Approval Gate:** If the Research Summary contains **Open Questions**, ask: *"The research identified these open questions: [list]. Are there also missing requirements, unhandled failure modes, or architectural risks?"* If there are no open questions and the plan is complete, emit: *"Research complete — no gaps found. Here is the structured plan."* and proceed. The user can still interject with changes.
     -   **Refine:** If the user adds details, update the plan.
 
 4.  **File Generation:**
@@ -66,4 +61,5 @@ description: Interactively drafts a structured requirement specification.
     -   **Action:** Save the file.
 
 5.  **Next Steps:**
-    -   Inform the user: *"Spec saved to `docs/specs/[area]/[name]-spec.md`. Run `/implement-spec` when ready to code."*
+    -   Ask the user: *"Spec saved to `docs/specs/[area]/[name]-spec.md`. Ready to implement now? I can start `/implement-spec` immediately, or you can run it later."*
+    -   If the user confirms, invoke `/implement-spec` with the spec path.

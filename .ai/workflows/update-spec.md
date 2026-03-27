@@ -7,13 +7,13 @@ usage: Trigger by typing "/update-spec"
 
 ## 1. SELECT & REVIVE
 - **Gate:** Ensure the user has defined the spec to update. If not, ask the user to define it, and exit.
-- **Context Lock:** Read the target spec file. Also read `AGENTS.md` and `.ai/rules/` to load architectural context before the interrogation step.
+- **Context Lock:** Read the target spec file. Follow the protocol in `.ai/workflows/_context-load.md` to load architectural context before the interrogation step.
 
 ## 2. DEFINE & INTERROGATE (ANTI-ASSUMPTION)
 - **User Prompt:** *"What needs to change?"*
 - **Gap Analysis (Rule 02):** Analyze the request. Are there ambiguities? Are there missing technical details required for a production-ready implementation?
 - **Logic vs Config Scope Check:** Before expanding scope, ask: *"Is this change logic-only (new code path, new tool, behavior change) or config/docs only?"* Confirm explicitly with the user if both appear affected.
-- **Unhappy Path Audit:** For every changed or new behavior, ask: *"What should happen when this fails?"* Explicitly probe for LLM errors, subprocess failures, data vendor errors, empty results, and config errors. Do not accept "handle errors gracefully" as an answer — name each case.
+- **Unhappy Path Audit:** For every changed or new behavior, follow the 5-category checklist in `.ai/workflows/_unhappy-paths.md`. Do not accept "handle errors gracefully" as an answer — name each case.
 - **Constraint:** **STOP and ASK** clarifying questions if anything is unclear. Do not proceed until requirements are sufficient for a complete, production-ready feature.
 
 ## 3. ASSIGN CHANGE ID
@@ -40,7 +40,9 @@ usage: Trigger by typing "/update-spec"
 ## 5. TACTICAL PLANNING (THE SCRATCHPAD)
 - **Plan File:** Derive the plan filename: `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md`.
 - **Collision Check:** Check if this plan file already exists.
-- **Resume Logic:** If it exists and the header matches, resume from the first unchecked item.
+- **Resume Logic:** If it exists and the header matches:
+    - Check the `> Routing:` line. If it says `Orchestrator`, proceed to Step 6b (wave execution). If it says `Inline` or is absent, proceed to Step 6.
+    - Find the first unchecked `[ ]` item and resume from there.
 - **Cross-Plan Awareness:** Scan for other active `IMPLEMENTATION_PLAN-{spec-stem}-*.md` files. If any exist, warn about overlapping files.
 - **Scope Check (MANDATORY for rename/replace changes):** If the change involves renaming a symbol, config key, or import path, grep `tradingagents/` and `tests/` for the old pattern before writing the plan. Include every matching file in the checklist.
 - **Generation (If new):**
@@ -59,10 +61,11 @@ usage: Trigger by typing "/update-spec"
 - **Routing:**
     - **Score 0-1** -> **Inline Mode.** Proceed to Step 6 (current sequential execution loop).
     - **Score 2+** -> **Orchestrator Mode.** Proceed to Step 6b (orchestrated execution).
+- **Persist Routing Decision:** Add a `> Routing: [Inline|Orchestrator] (Score N/4)` line to the plan file header. In Orchestrator Mode, also add `> Wave: 1 of N`.
 - **Parallel Groups (Orchestrator Mode only):** Append a `## Parallel Groups` section to `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md` per Section D of `_complexity-assessment.md`.
 
 ## 6. EXECUTION LOOP — INLINE MODE (DRIVEN BY PLAN)
-- **Applies when:** Complexity Score 0-1 (Inline Mode).
+- **Applies when:** Complexity Score 0-1 (Inline Mode), or resuming a plan with `> Routing: Inline`.
 - **Production-Ready Mandate:** No "TODO" comments or hardcoded placeholders allowed.
 - **The Loop:** Read `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md`. Find the first unchecked item `[ ]`.
 - **Standard Task Protocol:**
@@ -74,6 +77,7 @@ usage: Trigger by typing "/update-spec"
         -   **IF CATEGORY A:** Ask user to run the specific test.
         -   **IF CATEGORY B:** Ask user to verify the change has the expected effect.
 - **Update:** Once verified, mark `[x]` in both `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md` and the **Target Spec** file.
+- **Mid-Flight Reassessment:** After completing 50% of plan items, if the number of files touched exceeds the original File Radius estimate by 2+, pause and re-assess per `.ai/workflows/_complexity-assessment.md` Section H. Offer to switch to Orchestrator Mode for remaining items.
 
 ## 6b. EXECUTION LOOP — ORCHESTRATOR MODE (WAVE-BASED)
 - **Applies when:** Complexity Score 2+ (Orchestrator Mode).
@@ -92,15 +96,10 @@ usage: Trigger by typing "/update-spec"
 - **Regression Check:** Ask user to execute `python -m pytest tests/`. Do not proceed until green.
 
 ## 8. ADVERSARIAL SECURITY REVIEW (RULE 13)
-- **Persona Switch:** Activate Rule 13 ("The Red Team").
-- **Action:** Review the code written in this session. **Orchestrator Mode:** Review ALL files modified across ALL Implementor agents (see Section G of `_complexity-assessment.md`). Security review is never delegated to sub-agents.
-- **Challenge:** Check for subprocess injection, unvalidated external data, and credential exposure.
-- **Output:**
-  -   If Secure: "Security Review Passed: [Reason]"
-  -   If Vulnerable: "VULNERABILITY FOUND: [Description]. Fixing now..." -> **Loop back to Implementation.**
+> Follow the protocol in `.ai/workflows/_security-review.md`.
 
 ## 9. GOVERNANCE & ARCHIVE
-- **Cleanup:** Delete `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md`.
+- **Archive:** Move `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md` to `.ai/archive/IMPLEMENTATION_PLAN-{spec-stem}-{change-id}-{YYYY-MM-DD}.md`. Create `.ai/archive/` if it doesn't exist.
 - **Update Operational Reference** (`docs/refs/[area]/[current-filename]-ref.md`, if it exists):
     1. Read the current ref in full before making changes.
     2. Check each section against what changed in this update cycle:

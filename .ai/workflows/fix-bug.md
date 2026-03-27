@@ -30,10 +30,11 @@ description: Enforces TDD with a Human-in-the-Loop check for skipping tests.
     -   **Plan File (for Score 1+ or Orchestrator Mode):**
         -   **Assign Change ID:** Generate a short descriptive kebab-case slug (2-4 words) derived from the bug description (e.g., `fix-tool-call-parse`, `fix-subprocess-timeout`).
         -   **Plan File:** Create `IMPLEMENTATION_PLAN-{change-id}.md` in the project root.
-        -   **Header (CRITICAL):** The first two lines MUST be:
+        -   **Header (CRITICAL):** The first lines MUST be:
             ```
             > Target: {description of the bug — one line}
             > Change ID: {change-id}
+            > Routing: [Inline|Orchestrator] (Score N/4)
             ```
         -   **Checklist:** Break the fix into atomic steps (e.g., "- [ ] Write failing test", "- [ ] Fix JSON parse fallback in `_parse_tool_call`", "- [ ] Run regression suite").
         -   **Parallel Groups (Orchestrator Mode only):** Add a `## Parallel Groups` section per Section D of `_complexity-assessment.md`, mapping checklist items to file ownership groups.
@@ -92,9 +93,7 @@ description: Enforces TDD with a Human-in-the-Loop check for skipping tests.
     -   **Constraint:** Do not mark the task as done until all tests are green.
 
 10.  **Adversarial Security Review (Rule 13):**
-    -   **Action:** Briefly scan the fix. Did solving the bug create a security hole? (e.g., removing argument validation to fix a "tool call failed" error).
-    -   **Orchestrator Mode:** Review ALL files modified across ALL Implementor agents (see Section G of `_complexity-assessment.md`). Security review is never delegated to sub-agents.
-    -   **Output:** Confirm security status.
+    > Follow the protocol in `.ai/workflows/_security-review.md`.
 
 11.  **Consolidation & Cleanup:**
     -   **Check:** Did you create a separate test file in Step 5?
@@ -103,10 +102,10 @@ description: Enforces TDD with a Human-in-the-Loop check for skipping tests.
         -   **If Not Mergeable (Strategy Split):** Ensure the separate file has a permanent, architectural name (Rule 10).
     -   **Final State:** Ensure NO "temporary" files remain, but ALL test logic is preserved.
     -   **Constraint:** DO NOT remove instrumentation logging (Rule 11).
-    -   **Plan Cleanup:** If an `IMPLEMENTATION_PLAN-{change-id}.md` was created, delete it now.
+    -   **Plan Archive:** If an `IMPLEMENTATION_PLAN-{change-id}.md` was created, move it to `.ai/archive/IMPLEMENTATION_PLAN-{change-id}-{YYYY-MM-DD}.md`. Create `.ai/archive/` if it doesn't exist.
 
 12.  **Spec Update:**
     -   **Analyze:** Did this bug fix change a fundamental business rule or data contract?
     -   **Decision:**
         -   **If NO (Implementation Fix):** Stop here unless a spec was mentioned by the user.
-        -   **If YES (Requirement Change):** Identify the relevant spec file in `docs/specs/` and append a revision entry.
+        -   **If YES (Requirement Change):** Identify the relevant spec file in `docs/specs/`. Suggest a change-id and spec path: *"This fix changed a business rule. I recommend running `/update-spec` on `docs/specs/[area]/[name]-spec.md` with change-id `fix-{description}` to record the revision. Shall I start that now?"*

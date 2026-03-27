@@ -1,0 +1,6 @@
+{
+  "id": "energy",
+  "name": "Energy",
+  "description": "US energy sector — oil, gas, and renewables",
+  "tickers": ["XOM", "CVX", "COP", "PSX", "VLO", "MPC", "OXY", "DVN", "PXD", "HES", "EOG", "FANG", "NEE", "AEP", "D"]
+}

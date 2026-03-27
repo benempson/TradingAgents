@@ -1,0 +1,6 @@
+{
+  "id": "financials",
+  "name": "Financials",
+  "description": "Major US banks and financial institutions",
+  "tickers": ["JPM", "BAC", "WFC", "GS", "MS", "C", "BLK", "SCHW", "AXP", "COF", "USB", "PNC", "TFC", "FITB", "KEY"]
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "technology",
+    "name": "Technology",
+    "etf": "XLK",
+    "yf_sector": "Technology"
+  },
+  {
+    "id": "healthcare",
+    "name": "Healthcare",
+    "etf": "XLV",
+    "yf_sector": "Healthcare"
+  },
+  {
+    "id": "financials",
+    "name": "Financials",
+    "etf": "XLF",
+    "yf_sector": "Financial Services"
+  },
+  {
+    "id": "energy",
+    "name": "Energy",
+    "etf": "XLE",
+    "yf_sector": "Energy"
+  },
+  {
+    "id": "materials",
+    "name": "Materials",
+    "etf": "XLB",
+    "yf_sector": "Basic Materials"
+  },
+  {
+    "id": "industrials",
+    "name": "Industrials",
+    "etf": "XLI",
+    "yf_sector": "Industrials"
+  },
+  {
+    "id": "consumer_discretionary",
+    "name": "Consumer Discretionary",
+    "etf": "XLY",
+    "yf_sector": "Consumer Cyclical"
+  },
+  {
+    "id": "communication_services",
+    "name": "Communication Services",
+    "etf": "XLC",
+    "yf_sector": "Communication Services"
+  }
+]

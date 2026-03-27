@@ -1,0 +1,6 @@
+{
+  "id": "technology",
+  "name": "Technology",
+  "description": "Large-cap technology companies",
+  "tickers": ["AAPL", "MSFT", "NVDA", "GOOGL", "META", "AMZN", "TSLA", "AMD", "INTC", "QCOM", "AVGO", "TXN", "MU", "AMAT", "LRCX"]
+}

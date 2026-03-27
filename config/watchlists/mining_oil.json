@@ -1,0 +1,6 @@
+{
+  "id": "mining_oil",
+  "name": "Mining & Oil",
+  "description": "Major mining and oil producers",
+  "tickers": ["XOM", "CVX", "COP", "SLB", "HAL", "BKR", "FCX", "NEM", "GOLD", "AA", "CLF", "VALE", "RIO", "BHP", "WPM"]
+}

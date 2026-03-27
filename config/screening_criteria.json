@@ -1,0 +1,37 @@
+{
+  "criteria": [
+    {
+      "id": "default",
+      "name": "Default",
+      "description": "Balanced filter for trending stocks with moderate momentum",
+      "hard_filters": {
+        "rsi": {"min": 40, "max": 70},
+        "volume": {"min_ratio": 1.2},
+        "atr_pct": {"min": 0.5, "max": 6.0}
+      },
+      "scoring": {"w1": 0.4, "w2": 0.4, "w3": 0.2}
+    },
+    {
+      "id": "aggressive",
+      "name": "Aggressive",
+      "description": "High momentum filter for breakout candidates",
+      "hard_filters": {
+        "rsi": {"min": 50, "max": 80},
+        "volume": {"min_ratio": 1.5},
+        "atr_pct": {"min": 1.0, "max": 8.0}
+      },
+      "scoring": {"w1": 0.3, "w2": 0.5, "w3": 0.2}
+    },
+    {
+      "id": "conservative",
+      "name": "Conservative",
+      "description": "Low-risk filter for stable momentum candidates",
+      "hard_filters": {
+        "rsi": {"min": 35, "max": 60},
+        "volume": {"min_ratio": 1.1},
+        "atr_pct": {"min": 0.3, "max": 4.0}
+      },
+      "scoring": {"w1": 0.5, "w2": 0.3, "w3": 0.2}
+    }
+  ]
+}

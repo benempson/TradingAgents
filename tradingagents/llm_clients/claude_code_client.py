@@ -7,6 +7,7 @@ parsing that back into LangChain AIMessage(tool_calls=[...]).
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import uuid
@@ -161,7 +162,7 @@ class ChatClaudeCode(BaseChatModel):
     model_name: str = "claude-sonnet-4-5"
     bound_tools: Optional[List[Dict[str, Any]]] = None
     cli_path: str = "claude"
-    timeout: int = 120
+    timeout: int = 300  # raised from 120; override via CLAUDE_CODE_TIMEOUT env var
 
     @property
     def _llm_type(self) -> str:
@@ -275,7 +276,8 @@ class ClaudeCodeClient(BaseLLMClient):
     """BaseLLMClient wrapper for the Claude Code shim."""
 
     def get_llm(self) -> ChatClaudeCode:
-        return ChatClaudeCode(model_name=self.model)
+        timeout = int(os.environ.get("CLAUDE_CODE_TIMEOUT", "300"))
+        return ChatClaudeCode(model_name=self.model, timeout=timeout)
 
     def validate_model(self) -> bool:
         # Claude Code manages its own model availability; accept any name

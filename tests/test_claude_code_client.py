@@ -410,6 +410,24 @@ class TestClaudeCodeClient(unittest.TestCase):
         client = ClaudeCodeClient(model="any-model-name")
         self.assertTrue(client.validate_model())
 
+    def test_get_llm_default_timeout_is_300(self):
+        """Default timeout must be 300s, not the old 120s, so deep analysis
+        calls don't time out under normal production conditions."""
+        import os
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_TIMEOUT"}
+        with unittest.mock.patch.dict(os.environ, env, clear=True):
+            client = ClaudeCodeClient(model="claude-sonnet-4-5")
+            llm = client.get_llm()
+        self.assertEqual(llm.timeout, 300)
+
+    def test_get_llm_respects_claude_code_timeout_env_var(self):
+        """CLAUDE_CODE_TIMEOUT env var must override the default timeout."""
+        import os
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_TIMEOUT": "600"}):
+            client = ClaudeCodeClient(model="claude-sonnet-4-5")
+            llm = client.get_llm()
+        self.assertEqual(llm.timeout, 600)
+
 
 # ── factory integration test ─────────────────────────────────────────────────
 

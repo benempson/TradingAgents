@@ -107,7 +107,13 @@ def _run_screener(yf_sector: str, extra_filters: list) -> list[str]:
         EquityQuery("gt", ["dayvolume", _MIN_VOLUME]),
         EquityQuery("eq", ["sector", yf_sector]),
     ]
-    base_operands.extend(extra_filters)
+    # discovery_criteria.json stores filters as plain dicts; convert them here.
+    # EquityQuery instances passed directly (e.g. from tests) are kept as-is.
+    for f in extra_filters:
+        if isinstance(f, dict):
+            base_operands.append(EquityQuery(f["operator"].lower(), f["operands"]))
+        else:
+            base_operands.append(f)
 
     query = EquityQuery("and", base_operands)
 

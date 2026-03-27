@@ -6,7 +6,7 @@
       "description": "Stocks with strong price momentum and increasing volume",
       "filters": [
         {"operator": "GT", "operands": ["percentchange", 0]},
-        {"operator": "GT", "operands": ["regularMarketVolume", 1000000]}
+        {"operator": "GT", "operands": ["dayvolume", 1000000]}
       ]
     },
     {
@@ -15,7 +15,7 @@
       "description": "Undervalued stocks recovering from oversold conditions",
       "filters": [
         {"operator": "LT", "operands": ["percentchange", 0]},
-        {"operator": "LT", "operands": ["priceToBook", 3]}
+        {"operator": "LT", "operands": ["pricebookratio.quarterly", 3]}
       ]
     },
     {
@@ -23,8 +23,8 @@
       "name": "Breakout",
       "description": "Stocks near 52-week highs with strong volume",
       "filters": [
-        {"operator": "GT", "operands": ["regularMarketVolume", 2000000]},
-        {"operator": "GT", "operands": ["fiftyTwoWeekChangePercent", 10]}
+        {"operator": "GT", "operands": ["dayvolume", 2000000]},
+        {"operator": "GT", "operands": ["fiftytwowkpercentchange", 10]}
       ]
     }
   ]

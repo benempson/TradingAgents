@@ -7,11 +7,12 @@ The yfinance API used is ``yf.screen(EquityQuery(...), size=100, ...)`` (yfinanc
 import glob
 import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
+from yfinance import EquityQuery
 
-from screener.discovery import get_sector_shortlist
+from screener.discovery import get_sector_shortlist, _run_screener
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -154,4 +155,33 @@ def test_discovery_calls_rate_limiter(tmp_path):
     mock_limiter.check_and_increment.assert_called_once()
     assert call_order.index("limiter") < call_order.index("screen"), (
         "check_and_increment() must be called before yf.screen"
+    )
+
+
+# ── test 6: dict filters from config are converted to EquityQuery objects ─────
+
+def test_run_screener_converts_dict_filters_to_equity_query(tmp_path):
+    """_run_screener must convert filter dicts loaded from discovery_criteria.json into
+    EquityQuery instances before constructing the AND query.
+
+    discovery_criteria.json stores filters as plain dicts, e.g.:
+        {"operator": "GT", "operands": ["percentchange", 0]}
+
+    Passing these raw dicts to EquityQuery("and", [...]) raises:
+        TypeError: Operand must be type <class 'yfinance.screener.query.EquityQuery'> for OR/AND
+    """
+    dict_filters = [
+        {"operator": "GT", "operands": ["percentchange", 0]},
+        {"operator": "GT", "operands": ["dayvolume", 1000000]},
+    ]
+
+    with patch("screener.discovery.yf.screen", return_value={"quotes": [{"symbol": "AAPL"}]}) as mock_screen:
+        result = _run_screener("Technology", dict_filters)
+
+    assert result == ["AAPL"]
+    mock_screen.assert_called_once()
+    # The first positional arg to yf.screen must be an EquityQuery (not a raw dict).
+    screen_query_arg = mock_screen.call_args[0][0]
+    assert isinstance(screen_query_arg, EquityQuery), (
+        f"yf.screen was called with a {type(screen_query_arg).__name__}, expected EquityQuery"
     )

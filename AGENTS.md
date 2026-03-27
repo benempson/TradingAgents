@@ -50,6 +50,8 @@ dataflows/  ←  agents/  ←  graph/
 
 TradingAgents (v0.2.2) is a multi-agent LLM framework for financial trading analysis built on **LangGraph** + **LangChain**. A directed acyclic graph of specialised agents (analysts, researchers, traders, risk managers) collaborates to produce a final BUY / OVERWEIGHT / HOLD / UNDERWEIGHT / SELL decision for a given ticker and date.
 
+**Technical Screener (`screener/`):** A standalone pre-filter CLI tool that identifies technically interesting candidates before committing them to `ta.propagate()`. It runs a two-stage pipeline — sector/watchlist discovery → OHLCV fetch → indicator computation → hard filter + composite score — and optionally hands survivors to the LLM graph. It imports from `tradingagents/` read-only and does not modify any existing layer. See `docs/refs/screener/screener-ref.md` for the operational reference.
+
 ---
 
 ## 6. STACK
@@ -252,6 +254,8 @@ Run smoke test (real calls): `python test_claude_code_shim.py`
 
 ## 14. ENVIRONMENT VARIABLES
 
+### Core (LLM providers & graph)
+
 | Variable | Required by |
 |---|---|
 | `OPENAI_API_KEY` | `openai` provider |
@@ -259,10 +263,26 @@ Run smoke test (real calls): `python test_claude_code_shim.py`
 | `GOOGLE_API_KEY` | `google` provider |
 | `XAI_API_KEY` | `xai` provider |
 | `OPENROUTER_API_KEY` | `openrouter` provider |
-| `ALPHA_VANTAGE_API_KEY` | Alpha Vantage data vendors |
+| `ALPHA_VANTAGE_API_KEY` | Alpha Vantage data vendors + screener AV fallback |
 | `TRADINGAGENTS_RESULTS_DIR` | Override default results output path |
 
 The `claude_code` provider requires **none** of the above API keys.
+
+### Screener (`screener/`)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SCREENER_CACHE_DIR` | `temp/screener/data_cache` | Parquet OHLCV cache directory |
+| `PRICE_DATA_VALIDITY_MINS` | `480` | Cache TTL in minutes |
+| `YF_LIMIT_PER_MIN` | `100` | yfinance rolling per-minute request cap |
+| `YF_LIMIT_PER_HOUR` | `2000` | yfinance rolling per-hour request cap |
+| `YF_LIMIT_PER_DAY` | `48000` | yfinance rolling per-day request cap |
+| `YF_RATE_COUNTER_FILE` | `temp/screener/yf_rate_counters.json` | Persistent rate-limiter state |
+| `IB_HOST` | `None` (IB skipped) | IB Gateway hostname |
+| `IB_PORT` | `4002` | IB Gateway port |
+| `IB_CLIENT_ID` | `10` | IB client ID |
+| `IB_REQUEST_DELAY_S` | `0.1` (set to `10` in production) | Inter-request IB sleep; default is test-safe, not production-safe |
+| `SCREENER_TOP_N` | `5` | Default `--top-n` value for the screener CLI |
 
 ---
 

@@ -6,10 +6,39 @@ Your primary source of truth is the file `AGENTS.md` located in the project root
 ## CRITICAL INSTRUCTION
 Before generating any code or answering any architectural question, you MUST:
 1. Read `AGENTS.md`.
-2. Verify that your proposed solution follows the provider/factory pattern defined in `tradingagents/llm_clients/`.
-3. If you are modifying `trading_graph.py`, `factory.py`, or any `*_client.py`, explicitly state which architectural rule applies to your change.
+2. Read `AGENT.local.md` if it exists (private per-session notes).
+3. Verify that your proposed solution follows the provider/factory pattern defined in `tradingagents/llm_clients/`.
+4. If you are modifying `trading_graph.py`, `factory.py`, or any `*_client.py`, explicitly state which architectural rule applies to your change.
 
 FAILURE TO COMPLY with `AGENTS.md` will result in rejected code.
+
+---
+
+## MANIFESTO ETHOS & OBJECTIVES
+
+`AGENTS.md` is not a passive technical reference — it is the **AI Architectural Manifesto**: the prime directive that governs every decision made in this codebase. `PROJECT_SUMMARY.md` is its companion: the living record of the current architecture and file tree.
+
+**Both files exist to serve the same objective: ensure that every AI session — regardless of context — produces work of the same architectural quality as if a Principal Engineer were reviewing it.**
+
+The following principles are the foundation of that objective. They are not optional:
+
+### 1. The Source of Truth is Always Read First
+No task begins without reading `AGENTS.md` → `AGENT.local.md` → `.ai/rules/` → `PROJECT_SUMMARY.md` in that order. This is non-negotiable. An AI that skips this step is operating blind.
+
+### 2. Every Task Has a Defined Workflow
+There are no "freestyle" implementations. All code-writing tasks — bugs, features, refactors — are governed by a named workflow in `.ai/workflows/`. The workflow exists to enforce correctness, testing, security, and documentation in the right order. Bypassing it bypasses all of those safeguards simultaneously.
+
+### 3. Clean Architecture is the Prime Directive
+The layer dependency direction (`dataflows ← agents ← graph`) is **inviolable**. A violation doesn't just create a coupling — it destroys the ability to test, swap, or reason about any layer in isolation. This is the architectural decision that all other decisions protect.
+
+### 4. Tests Are Assets, Not Overhead
+A test that is deleted to make a build pass is not a solution — it is a regression waiting to happen with no early warning system. Tests, once passing, are permanent. The TDD mandate exists not for ceremony but because bugs caught in red-first tests have a root cause; bugs caught in production do not.
+
+### 5. The Manifesto Must Stay Current
+`AGENTS.md` and `PROJECT_SUMMARY.md` are governance documents. When the architecture changes, they must change in the same commit. A stale manifesto is worse than no manifesto — it actively misleads future AI sessions. Section numbers must remain sequential after any edit.
+
+### 6. Specs and References Are Companions
+`docs/specs/` (build plans) and `docs/refs/` (operational references) are created in parallel and never replace each other. The spec is the "why and what"; the ref is the "where and how right now". Both are permanent once created.
 
 ---
 
@@ -17,6 +46,8 @@ FAILURE TO COMPLY with `AGENTS.md` will result in rejected code.
 
 ```
 dataflows/  ←  agents/  ←  graph/
+                              ↑
+                         llm_clients/
 ```
 
 - `dataflows/` has no knowledge of agents or the graph.
@@ -53,7 +84,7 @@ class MyLLMClient(BaseLLMClient):
 
 **Why:** LLM providers (especially reasoning models) return metadata blocks (`<thinking>`, `[REASONING]`, etc.) that break downstream agents. `normalize_content()` strips these before the message enters the graph. Every new provider MUST apply this — no exceptions.
 
-**Exception:** `ChatClaudeCode` (the subprocess shim) does NOT use a Normalized wrapper because `normalize_content()` is applied in a different way and the shim controls its own output format.
+**Exception:** `ChatClaudeCode` (the subprocess shim) does NOT use a Normalized wrapper because the shim controls its own output format entirely.
 
 ---
 
@@ -98,7 +129,21 @@ class ChatClaudeCode(BaseChatModel):
 ## TWO LLM TIERS: deep_think vs quick_think
 
 The graph uses two LLM tiers configured via `DEFAULT_CONFIG`:
-- `deep_think_llm`: Used for analyst nodes and debate nodes where quality matters most.
-- `quick_think_llm`: Used for routing/classification nodes where speed matters.
+- `deep_think_llm`: Used for Research Manager and Portfolio Manager nodes where quality matters most.
+- `quick_think_llm`: Used for analyst nodes, researcher nodes, and the trader — where speed matters more.
 
-New agent nodes must explicitly choose the correct tier. Do not default to `deep_think_llm` for all nodes — check `AGENTS.md` for the intended tier per node type.
+New agent nodes must explicitly choose the correct tier. Do not default to `deep_think_llm` for all nodes.
+
+---
+
+## MANIFESTO MAINTENANCE PROTOCOL
+
+When any of the following changes, update `AGENTS.md` and `PROJECT_SUMMARY.md` **in the same commit**:
+- A new LLM provider is added
+- A new analyst type is added
+- A new `DEFAULT_CONFIG` key is introduced
+- A new top-level module is created under `tradingagents/`
+- The agent pipeline graph topology changes
+- A security or coding standard changes
+
+After editing any numbered section in `AGENTS.md` or any rules file, verify that all section numbers remain sequential before committing.

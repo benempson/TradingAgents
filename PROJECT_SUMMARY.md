@@ -1,6 +1,52 @@
 # PROJECT_SUMMARY.md — TradingAgents File & Folder Reference
+> Last updated: 2026-03-27
 
-## Top-level Layout
+## 1. Project Overview
+
+**TradingAgents** is a production-grade multi-agent LLM framework for financial trading analysis. A directed acyclic graph of specialised agents collaborates to produce a final BUY / OVERWEIGHT / HOLD / UNDERWEIGHT / SELL decision for a given ticker and date.
+
+- **Orchestration:** LangGraph (directed acyclic agent graph)
+- **LLM abstraction:** LangChain (BaseChatModel, BaseTool, ToolNode)
+- **Market data:** yfinance (default), Alpha Vantage
+- **Testing:** pytest + unittest.mock (unit); real-call smoke test for E2E
+- **CLI:** Typer + Rich
+- **Python:** ≥ 3.10
+
+---
+
+## 2. Architecture: The Layer Separation Pattern
+
+The codebase enforces a strict one-way dependency direction:
+
+```
+dataflows/  ←  agents/  ←  graph/
+                              ↑
+                         llm_clients/
+```
+
+### Core Pillars
+
+1. **`dataflows/`** — Market data fetching. No knowledge of agents or the graph. All vendor calls route through `interface.py`, which reads config at runtime to select the active vendor (yfinance or Alpha Vantage).
+
+2. **`agents/`** — Agent node functions. Each exposes a `create_<name>(llm, ...)` factory returning a LangGraph node function (`state -> dict`). Imports from `dataflows/` only.
+
+3. **`llm_clients/`** — LLM provider abstraction. All instantiation flows through `create_llm_client(provider, model, base_url)`. Each provider has a `BaseLLMClient` subclass and a `Normalized*` wrapper that strips reasoning/metadata via `normalize_content()`.
+
+4. **`graph/`** — LangGraph wiring. Constructs the `StateGraph`, adds nodes and edges, and compiles it. Uses both `agents/` and `llm_clients/`. Not imported by any other layer.
+
+### Provider Factory
+
+```python
+from tradingagents.llm_clients import create_llm_client
+client = create_llm_client(provider="claude_code", model="claude-sonnet-4-5")
+llm = client.get_llm()  # returns a LangChain BaseChatModel
+```
+
+Supported providers: `openai`, `anthropic`, `google`, `xai`, `openrouter`, `ollama`, `claude_code`.
+
+---
+
+## 3. Top-level Layout
 
 ```
 TradingAgents/
@@ -10,23 +56,23 @@ TradingAgents/
 │   ├── graph/              # LangGraph wiring, orchestration, I/O
 │   └── llm_clients/        # LLM provider abstraction layer
 ├── cli/                    # Interactive CLI (Typer)
-├── tests/                  # Automated tests
-├── build/                  # Setuptools build artefacts (not source of truth)
+├── tests/                  # Automated unit tests
+├── docs/                   # Specs and operational references (created as needed)
+│   ├── specs/              # Build plans per feature (docs/specs/<area>/<name>-spec.md)
+│   └── refs/               # Operational references (docs/refs/<area>/<name>-ref.md)
 ├── main.py                 # Quick example / scratch script
-├── test.py                 # Legacy scratch test
 ├── test_claude_code_shim.py  # E2E smoke test for the claude_code provider
 ├── pyproject.toml          # Package metadata & dependencies
-├── AGENTS.md               # Technical reference (coding standards, providers, config)
+├── AGENTS.md               # AI Architectural Manifesto (coding standards, providers, config)
 └── PROJECT_SUMMARY.md      # This file
 ```
 
 ---
 
-## `tradingagents/` — Core Package
+## 4. `tradingagents/` — Core Package
 
 ### `tradingagents/default_config.py`
-Single source of truth for all configurable parameters: LLM provider, model names, data
-vendors, debate rounds, recursion limits, and file paths. Always copy before mutating:
+Single source of truth for all configurable parameters. Always copy before mutating:
 ```python
 config = DEFAULT_CONFIG.copy()
 config["llm_provider"] = "claude_code"
@@ -34,54 +80,37 @@ config["llm_provider"] = "claude_code"
 
 ### `tradingagents/llm_clients/`
 
-The provider abstraction layer. All LLM construction goes through here.
-
 | File | Purpose |
 |---|---|
-| `factory.py` | `create_llm_client(provider, model, base_url, **kwargs)` — the single entry point. Branches by provider string. |
-| `base_client.py` | `BaseLLMClient` ABC (`get_llm`, `validate_model`) + `normalize_content()` helper that strips reasoning/metadata blocks from responses. |
-| `openai_client.py` | `NormalizedChatOpenAI` + `OpenAIClient` — handles openai, ollama, openrouter, xai. Uses Responses API for native OpenAI. |
-| `anthropic_client.py` | `NormalizedChatAnthropic` + `AnthropicClient` — handles anthropic. |
-| `google_client.py` | `NormalizedChatGoogleGenerativeAI` + `GoogleClient` — handles google. |
-| `claude_code_client.py` | `ChatClaudeCode` + `ClaudeCodeClient` — **custom shim** that routes calls through the `claude --print` CLI (no API key needed, uses Claude Max subscription). |
-| `validators.py` | `VALID_MODELS` dict + `validate_model(provider, model)` — ollama/openrouter/claude_code accept any model name. |
-| `__init__.py` | Re-exports `create_llm_client`. |
+| `factory.py` | `create_llm_client(provider, model, base_url, **kwargs)` — the single entry point |
+| `base_client.py` | `BaseLLMClient` ABC + `normalize_content()` helper that strips reasoning/metadata blocks |
+| `openai_client.py` | `NormalizedChatOpenAI` + `OpenAIClient` — handles openai, ollama, openrouter, xai |
+| `anthropic_client.py` | `NormalizedChatAnthropic` + `AnthropicClient` |
+| `google_client.py` | `NormalizedChatGoogleGenerativeAI` + `GoogleClient` |
+| `claude_code_client.py` | `ChatClaudeCode` + `ClaudeCodeClient` — subprocess shim (no API key, uses Claude Max) |
+| `validators.py` | `VALID_MODELS` dict + `validate_model()` |
 
 ### `tradingagents/graph/`
 
-LangGraph wiring. The main entry point for consumers of the framework.
-
 | File | Purpose |
 |---|---|
-| `trading_graph.py` | **`TradingAgentsGraph`** — the top-level class. `__init__` builds the LLM clients and graph; `propagate(ticker, date)` runs the analysis and returns `(final_state, decision)`. |
-| `setup.py` | **`GraphSetup`** — constructs the `StateGraph`, adds all nodes and edges, and compiles it. Graph topology lives here. |
-| `propagation.py` | **`Propagator`** — creates the initial `AgentState` for a ticker/date. |
-| `conditional_logic.py` | **`ConditionalLogic`** — routing functions (`should_continue_market`, `should_continue_debate`, `should_continue_risk_analysis`, etc.) that decide which node runs next. |
-| `signal_processing.py` | **`SignalProcessor`** — extracts the final BUY/OVERWEIGHT/HOLD/UNDERWEIGHT/SELL label from the raw Portfolio Manager output text. |
-| `reflection.py` | **`Reflector`** — post-trade memory update logic (called via `ta.reflect_and_remember(returns)`). |
-| `__init__.py` | Re-exports `TradingAgentsGraph`. |
+| `trading_graph.py` | **`TradingAgentsGraph`** — top-level class; `propagate(ticker, date)` runs the analysis |
+| `setup.py` | **`GraphSetup`** — constructs the `StateGraph`, adds nodes/edges, compiles |
+| `propagation.py` | **`Propagator`** — creates the initial `AgentState` |
+| `conditional_logic.py` | **`ConditionalLogic`** — routing functions (`should_continue_market`, `should_continue_debate`, etc.) |
+| `signal_processing.py` | **`SignalProcessor`** — extracts BUY/OVERWEIGHT/HOLD/UNDERWEIGHT/SELL from Portfolio Manager output |
+| `reflection.py` | **`Reflector`** — post-trade memory update logic |
 
 ### `tradingagents/agents/`
 
-One file per agent role. Each file exposes a `create_<name>(llm, ...)` factory that returns a
-LangGraph node function (`state -> dict`).
+#### `agents/analysts/` — Data-gathering (use `quick_think_llm`)
 
-#### `agents/analysts/` — Data-gathering agents (use `quick_think_llm`)
-
-| File | Agent | Tools used |
+| File | Agent | Tools |
 |---|---|---|
 | `market_analyst.py` | Market Analyst | `get_stock_data`, `get_indicators` |
-| `social_media_analyst.py` | Social Media Analyst | (sentiment tools) |
+| `social_media_analyst.py` | Social Media Analyst | sentiment tools |
 | `news_analyst.py` | News Analyst | `get_news`, `get_global_news` |
-| `fundamentals_analyst.py` | Fundamentals Analyst | `get_fundamentals`, `get_balance_sheet`, `get_cashflow`, `get_income_statement`, `get_insider_transactions` |
-
-Pattern used by all analysts:
-```python
-chain = prompt | llm.bind_tools(tools)
-result = chain.invoke(state["messages"])
-# If tool_calls present → ToolNode handles them and re-invokes analyst
-# If no tool_calls → result.content is the final report
-```
+| `fundamentals_analyst.py` | Fundamentals Analyst | `get_fundamentals`, `get_balance_sheet`, etc. |
 
 #### `agents/researchers/` — Investment thesis (use `quick_think_llm`)
 
@@ -89,9 +118,6 @@ result = chain.invoke(state["messages"])
 |---|---|
 | `bull_researcher.py` | Bull Researcher — argues for investment |
 | `bear_researcher.py` | Bear Researcher — argues against investment |
-
-These run in a debate loop (`max_debate_rounds`) alternating between themselves until the
-Research Manager signals a decision.
 
 #### `agents/managers/` — Decision makers (use `deep_think_llm`)
 
@@ -104,77 +130,31 @@ Research Manager signals a decision.
 
 | File | Agent |
 |---|---|
-| `aggressive_debator.py` | Aggressive Analyst — argues for higher risk |
-| `conservative_debator.py` | Conservative Analyst — argues for lower risk |
-| `neutral_debator.py` | Neutral Analyst — mediates |
-
-Run in a round-robin loop (`max_risk_discuss_rounds`) before the Portfolio Manager decides.
-
-#### `agents/trader/`
-
-| File | Agent |
-|---|---|
-| `trader.py` | Trader — translates the investment plan into a specific trading proposal |
+| `aggressive_debator.py` | Aggressive Analyst |
+| `conservative_debator.py` | Conservative Analyst |
+| `neutral_debator.py` | Neutral Analyst |
 
 #### `agents/utils/`
 
 | File | Purpose |
 |---|---|
 | `agent_states.py` | `AgentState`, `InvestDebateState`, `RiskDebateState` TypedDicts |
-| `agent_utils.py` | Abstract tool functions (`get_stock_data`, `get_indicators`, etc.) registered as LangChain `@tool`s; these call into `dataflows/interface.py` |
+| `agent_utils.py` | LangChain `@tool`-decorated functions that route into `dataflows/interface.py` |
 | `memory.py` | `FinancialSituationMemory` — Redis-backed agent memory for post-trade reflection |
-| `core_stock_tools.py` | Low-level wrappers around stock data |
-| `technical_indicators_tools.py` | Low-level wrappers around technical indicators |
-| `fundamental_data_tools.py` | Low-level wrappers around fundamental data |
-| `news_data_tools.py` | Low-level wrappers around news data |
 
 ### `tradingagents/dataflows/`
 
-Market data fetching layer. All agent tools route here; the actual provider is selected at
-runtime from the config.
-
 | File | Purpose |
 |---|---|
-| `config.py` | `get_config()` / `set_config()` — runtime config registry (populated from `DEFAULT_CONFIG` or the user-provided config dict) |
+| `config.py` | `get_config()` / `set_config()` — runtime config registry |
 | `interface.py` | Dispatch layer: reads config and calls the right vendor function |
 | `y_finance.py` | yfinance implementation for stock data, indicators, fundamentals, news |
-| `yfinance_news.py` | yfinance news-specific helpers |
 | `alpha_vantage.py` | Alpha Vantage combined entry point |
-| `alpha_vantage_stock.py` | AV stock price data |
-| `alpha_vantage_indicator.py` | AV technical indicators |
-| `alpha_vantage_fundamentals.py` | AV fundamentals (earnings, balance sheet, etc.) |
-| `alpha_vantage_news.py` | AV news sentiment |
-| `alpha_vantage_common.py` | Shared AV utilities |
-| `stockstats_utils.py` | `stockstats` wrapper for computing technical indicators from OHLCV data |
-| `utils.py` | General dataflow helpers |
+| `stockstats_utils.py` | `stockstats` wrapper for computing technical indicators |
 
 ---
 
-## `cli/` — Interactive CLI
-
-Entry point: `tradingagents` (installed script) or `python -m cli.main`.
-
-| File | Purpose |
-|---|---|
-| `main.py` | Typer app; interactive prompts for ticker, date, provider, models, analysts, depth |
-| `config.py` | CLI-specific configuration helpers |
-| `models.py` | Provider/model selection menus |
-| `stats_handler.py` | LangChain callback handler that tracks token/cost stats and prints a summary table after the run |
-| `announcements.py` | Release announcement display |
-| `utils.py` | Rich formatting helpers |
-
----
-
-## `tests/`
-
-| File | What it tests |
-|---|---|
-| `test_claude_code_client.py` | Unit tests for `ChatClaudeCode`: `_generate`, `bind_tools`, message formatting, tool-call JSON parsing, subprocess error handling — all with mocked `subprocess.run` |
-| `test_ticker_symbol_handling.py` | Ticker symbol normalisation / instrument context helpers |
-
----
-
-## Key Entrypoints
+## 5. Key Entrypoints
 
 ### Programmatic API
 
@@ -183,13 +163,13 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
-config["llm_provider"]    = "claude_code"   # or "openai", "anthropic", etc.
+config["llm_provider"]    = "claude_code"
 config["deep_think_llm"]  = "claude-opus-4-5"
 config["quick_think_llm"] = "claude-sonnet-4-5"
 
 ta = TradingAgentsGraph(
     selected_analysts=["market", "social", "news", "fundamentals"],
-    debug=True,
+    debug=True,   # constructor param, not a DEFAULT_CONFIG key
     config=config,
 )
 
@@ -210,9 +190,27 @@ python test_claude_code_shim.py          # single analyst, fast
 FULL_RUN=1 python test_claude_code_shim.py  # all four analysts
 ```
 
+### Unit tests
+
+```bash
+python -m pytest tests/
+```
+
 ---
 
-## Data Flow Summary
+## 6. Guardrails (from AGENTS.md)
+
+- **The "First, Do No Harm" Rule:** Never delete or disable a failing test to pass a build. Update the test or remove it with justification.
+- **No God Modules:** `dataflows/`, `agents/`, `llm_clients/`, and `graph/` must remain strictly separated. No module may import upward in the dependency chain.
+- **Normalized Wrappers:** Every new LLM provider MUST have a `Normalized*` subclass that calls `normalize_content()` on `.invoke()` output — no exceptions (except `claude_code` which controls its own output).
+- **TDD Mandate:** Logic changes require a failing test before the fix. Config/docs changes do not (see `.ai/rules/09-testing-roi.md`).
+- **Subprocess Safety:** `subprocess.run` must always use a list argument. `shell=True` is forbidden.
+- **No Hardcoded Credentials:** All API keys come from environment variables.
+- **Production-Ready Code:** No `TODO` comments, no `print()` debug statements, no empty `except` blocks in committed code.
+
+---
+
+## 7. Data Flow Summary
 
 ```
 User: ta.propagate("AAPL", "2026-03-26")
@@ -240,4 +238,22 @@ User: ta.propagate("AAPL", "2026-03-26")
   │
   └─ SignalProcessor.process_signal(final_trade_decision)
        → "BUY" | "OVERWEIGHT" | "HOLD" | "UNDERWEIGHT" | "SELL"
+```
+
+---
+
+## 8. Operational References (docs/refs/)
+
+Operational references are generated by `/spec-ref` after a feature is implemented. They provide a high-density, maintainer-focused view of each feature's system constants, data model, module map, test coverage, and known edge cases.
+
+```
+docs/refs/          (created as features are implemented and documented)
+└── (empty — populate via /spec-post-impl after each implemented spec)
+```
+
+When a reference is generated, add it here. Example future entries:
+```
+docs/refs/
+└── llm_clients/
+    └── claude-code-client-ref.md   # ChatClaudeCode — CLI flags, parsing logic, edge cases
 ```

@@ -31,9 +31,8 @@ DESIGN PRINCIPLES:
 
 4. WORKFLOW SETUP:
    - For each workflow in .ai/workflows/*.md:
-         <agent>/agents/<workflow>/SKILL.md   (subfolder, required for agents)
          <agent>/commands/<workflow>.md        (flat file, enables /name shorthand)
-     Both created as symbolic links.
+     Created as symbolic links.
 
 5. AGENT DOC SETUP:
    - If configured, create:
@@ -49,7 +48,6 @@ DESIGN PRINCIPLES:
 $AgentConfigs = @{
     ".claude" = @{
         Folders = @(
-            @{ Name = "agents";   Clear = $true },
             @{ Name = "commands"; Clear = $true }
         )
         NeedsRulesLink    = $true
@@ -117,8 +115,7 @@ function Prepare-AgentFolders {
 # -----------------------------
 function Sync-Workflows {
     param(
-        [string]$AgentsDir,
-        [string]$CommandsDir,
+        [string]$DestinationDir,
         [string]$WorkflowSourceDir
     )
 
@@ -127,14 +124,7 @@ function Sync-Workflows {
     foreach ($file in $workflows) {
         $name = $file.BaseName
 
-        # Agents: subfolder with SKILL.md (required structure)
-        $skillFolder = Join-Path $AgentsDir $name
-        $skillFile   = Join-Path $skillFolder "SKILL.md"
-        New-Item -ItemType Directory -Force -Path $skillFolder | Out-Null
-        New-FileSymlink -LinkPath $skillFile -TargetPath $file.FullName
-
-        # Commands: flat symlink so /name works without namespace prefix
-        $commandFile = Join-Path $CommandsDir "$name.md"
+        $commandFile = Join-Path $DestinationDir "$name.md"
         New-FileSymlink -LinkPath $commandFile -TargetPath $file.FullName
 
         Write-Host "Synced workflow: $name" -ForegroundColor Green
@@ -213,8 +203,7 @@ function ConfigureAgent {
     $folders = Prepare-AgentFolders -AgentRoot $AgentRoot -FolderConfig $config.Folders
 
     Sync-Workflows `
-        -AgentsDir $folders["agents"] `
-        -CommandsDir $folders["commands"] `
+        -DestinationDir $folders["commands"] `
         -WorkflowSourceDir $WorkflowSourceDir
 
     Write-Host "Completed configuration for $AgentFolderName" -ForegroundColor Cyan

@@ -415,3 +415,65 @@ def test_fetcher_prints_per_ticker_progress(tmp_path, monkeypatch, capsys):
         assert expected in captured.out, (
             f"Expected progress line '{expected}' in stdout.\nActual stdout:\n{captured.out}"
         )
+
+
+# ── Test 13: IB connection failure raises IBConnectionFailed (R-FETCH-11) ──────
+
+
+def test_ib_connection_failed_raises(tmp_path, monkeypatch):
+    """When IB_HOST is set but connectAsync raises ConnectionRefusedError,
+    _fetch_ib must propagate IBConnectionFailed instead of silently returning {}.
+
+    The test verifies that fetch_ohlcv (with ib_host explicitly set) raises
+    IBConnectionFailed when the IB connection is refused.
+    """
+    import asyncio
+    from screener.data_fetcher import IBConnectionFailed, fetch_ohlcv
+
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+
+    cache = _make_fresh_cache(tmp_path)
+    limiter = _make_limiter()
+
+    # Patch the IB class inside data_fetcher so connectAsync raises ConnectionRefusedError.
+    mock_ib_instance = MagicMock()
+    mock_ib_instance.connectAsync = MagicMock(
+        side_effect=ConnectionRefusedError("Connection refused")
+    )
+
+    with patch("screener.data_fetcher.IB", return_value=mock_ib_instance):
+        with pytest.raises(IBConnectionFailed) as exc_info:
+            fetch_ohlcv(["AAPL"], cache, limiter, "2026-03-27", ib_host="127.0.0.1")
+
+    assert "127.0.0.1" in str(exc_info.value) or exc_info.value.host == "127.0.0.1"
+
+
+# ── Test 14: skip_ib=True bypasses IB even when IB_HOST is configured ──────────
+
+
+def test_fetch_ohlcv_skip_ib_bypasses_ib(tmp_path, monkeypatch):
+    """When skip_ib=True is passed to fetch_ohlcv, IB must not be attempted
+    regardless of ib_host or IB_HOST env var.
+    """
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+    monkeypatch.setenv("IB_HOST", "127.0.0.1")
+
+    cache = _make_fresh_cache(tmp_path)
+    limiter = _make_limiter()
+    yf_df = make_yf_dataframe(250)
+
+    mock_ib_class = MagicMock()
+
+    with (
+        patch("screener.data_fetcher.IB", mock_ib_class),
+        patch("screener.data_fetcher.yf") as mock_yf,
+    ):
+        mock_yf.download.return_value = yf_df
+
+        from screener.data_fetcher import fetch_ohlcv
+
+        result = fetch_ohlcv(["AAPL"], cache, limiter, "2026-03-27", skip_ib=True)
+
+    # IB class must never have been instantiated
+    mock_ib_class.assert_not_called()
+    assert "AAPL" in result

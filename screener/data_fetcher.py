@@ -45,6 +45,28 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+# ── custom exceptions ─────────────────────────────────────────────────────────
+
+
+class IBConnectionFailed(Exception):
+    """Raised when IB_HOST is configured but IB Gateway connection is refused.
+
+    Args:
+        host: IB Gateway hostname or IP that was attempted.
+        port: IB Gateway port that was attempted.
+        reason: Underlying exception message.
+    """
+
+    def __init__(self, host: str, port: int, reason: str) -> None:
+        self.host = host
+        self.port = port
+        self.reason = reason
+        super().__init__(
+            f"IB Gateway at {host}:{port} is unreachable: {reason}"
+        )
+
+
 # ── constants ─────────────────────────────────────────────────────────────────
 
 # Maximum Alpha Vantage calls per fetch_ohlcv() invocation before switching
@@ -98,10 +120,10 @@ async def _fetch_ib_async(
         await ib.connectAsync(host, port, clientId=client_id)
     except (ConnectionRefusedError, asyncio.TimeoutError) as exc:
         logger.warning(
-            "IB Gateway connection failed — skipping IB source",
+            "IB Gateway connection failed",
             extra={"host": host, "port": port, "error": str(exc)},
         )
-        return {}
+        raise IBConnectionFailed(host, port, str(exc)) from exc
 
     results: dict[str, pd.DataFrame] = {}
     for ticker in tickers:
@@ -286,6 +308,7 @@ def fetch_ohlcv(
     ib_host: str | None = None,
     ib_port: int | None = None,
     ib_client_id: int | None = None,
+    skip_ib: bool = False,
 ) -> dict[str, pd.DataFrame]:
     """Fetch 1-year daily OHLCV data for each ticker using a three-source fallback chain.
 
@@ -308,12 +331,17 @@ def fetch_ohlcv(
         ib_host: IB Gateway hostname or IP.  If ``None``, IB is skipped.
         ib_port: IB Gateway port.  Falls back to ``IB_PORT`` env var or 4002.
         ib_client_id: IB client ID.  Falls back to ``IB_CLIENT_ID`` env var or 10.
+        skip_ib: When ``True``, bypass the IB source entirely regardless of
+            env vars.  Used by the orchestrator after the user has acknowledged
+            an IB connection failure and chosen to continue with yfinance.
 
     Returns:
         Dict mapping ticker symbol → normalised OHLCV DataFrame.  Tickers for
         which all sources returned empty data are omitted.
 
     Raises:
+        IBConnectionFailed: When ``IB_HOST`` is configured but the Gateway
+            refuses the connection (and ``skip_ib`` is ``False``).
         YFRateLimitExceeded: Propagated from ``limiter.check_and_increment()``
             when the rolling yfinance window is exhausted.
     """
@@ -352,7 +380,7 @@ def fetch_ohlcv(
     # ── Source 1: IB Gateway ──────────────────────────────────────────────────
     pending_after_ib: list[str] = list(pending_after_cache)
 
-    if resolved_ib_host is not None:
+    if resolved_ib_host is not None and not skip_ib:
         if IB is None:
             logger.warning(
                 "IB host/port configured but ib_async is not installed — skipping IB source",

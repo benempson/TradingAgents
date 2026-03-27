@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import sys
-from datetime import date, datetime, timedelta
+import time
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 from screener.cache_store import CacheStore
-from screener.data_fetcher import fetch_ohlcv
+from screener.data_fetcher import IBConnectionFailed, fetch_ohlcv
 from screener.discovery import get_sector_shortlist
 from screener.indicator_engine import compute_indicators
 from screener.screening_engine import apply_criteria
@@ -460,12 +462,44 @@ def main(top_n: int = 5, date_str: str | None = None, no_ta: bool = False) -> No
 
     # ── Step 5: OHLCV fetch ────────────────────────────────────────────────────
     print(f"[Fetcher] Fetching OHLCV data for {len(tickers)} tickers...")
-    try:
-        ohlcv_data = fetch_ohlcv(tickers, cache, limiter, trade_date)
-    except YFRateLimitExceeded as exc:
-        logger.error("yfinance rate limit exceeded during OHLCV fetch", exc_info=True)
-        print(f"[Fetcher] Rate limit exceeded: {exc}. Try again later.")
-        sys.exit(1)
+    _skip_ib = False  # set True after user acknowledges an IB connection failure
+    ohlcv_data: dict = {}
+    while True:
+        try:
+            ohlcv_data = fetch_ohlcv(tickers, cache, limiter, trade_date, skip_ib=_skip_ib)
+            break  # success
+        except IBConnectionFailed as exc:
+            logger.warning(
+                "IB Gateway unreachable — prompting user for fallback decision",
+                extra={"host": exc.host, "port": exc.port},
+            )
+            print(f"\n[Fetcher] {exc}")
+            answer = _safe_input("Continue fetching with yfinance instead? [y/n]: ").strip().lower()
+            if answer != "y":
+                logger.info("User chose to stop after IB connection failure")
+                sys.exit(1)
+            _skip_ib = True
+            logger.info("User confirmed yfinance fallback; IB will be skipped for this run")
+        except YFRateLimitExceeded as exc:
+            logger.warning(
+                "yfinance rate limit hit during OHLCV fetch",
+                extra={"window": exc.window, "count": exc.count, "limit": exc.limit},
+            )
+            wait_secs = max(1, math.ceil((exc.reset_at - datetime.now(timezone.utc)).total_seconds()))
+            while True:
+                answer = _safe_input(
+                    f"\n[Fetcher] yfinance {exc.window} limit reached ({exc.count}/{exc.limit}). "
+                    f"[w]ait {wait_secs}s and continue / [s]top: "
+                ).strip().lower()
+                if answer == "w":
+                    print(f"[Fetcher] Waiting {wait_secs}s for rate-limit window to reset...")
+                    time.sleep(wait_secs)
+                    break
+                elif answer == "s":
+                    logger.info("User chose to stop after yfinance rate limit")
+                    sys.exit(1)
+                else:
+                    print(f"  Invalid input '{answer}' — enter 'w' to wait or 's' to stop.")
 
     if not ohlcv_data:
         print("No OHLCV data could be fetched for any ticker. Check data sources.")

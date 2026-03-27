@@ -173,9 +173,9 @@ YF_RATE_COUNTER_FILE=temp/screener/yf_rate_counters.json
 
 | ID | Trigger | Response | Log |
 |----|---------|----------|-----|
-| FM-01 | IB `ConnectionRefusedError` / `asyncio.TimeoutError` | Print fallback message; return `{}`; all tickers → AV/yfinance | `logger.warning("IB Gateway not reachable", extra={"host":…,"port":…})` |
+| FM-01 | IB `ConnectionRefusedError` / `asyncio.TimeoutError` (when `IB_HOST` set) | Raise `IBConnectionFailed`; `screener.py` prompts user: continue with yfinance? If "n" → exit(1). If "y" → retry with `skip_ib=True` | `logger.warning("IB Gateway connection failed", extra={"host":…,"port":…})` |
 | FM-02 | IB pacing error for single ticker | Exclude from IB results; falls through to AV/yfinance | `logger.warning("IB pacing error", extra={"ticker":…,"error":…})` |
-| FM-03 | `YFRateLimitExceeded` raised | Print window + reset time; exit(1) | `logger.error("yfinance rate limit reached", extra={"window":…,"count":…,"limit":…})` |
+| FM-03 | `YFRateLimitExceeded` raised mid-batch | Pause; prompt user: `[w]ait Ns / [s]top`. Wait → `time.sleep(N)`, retry full ticker list (cache serves already-fetched). Stop → exit(1). Re-prompts each time limit is hit. | `logger.warning("yfinance rate limit hit", extra={"window":…,"count":…,"limit":…})` |
 | FM-04 | AV call count >= 20 in run | Switch remaining tickers to yfinance; continue | `logger.warning("Alpha Vantage near daily limit, switching to yfinance")` |
 | FM-05 | yfinance.Screener returns 0 for sector | Return `[]`; if all sectors empty → print message, exit(0) | `logger.warning("No tickers found", extra={"sector":…,"criteria":…})` |
 | FM-06 | All tickers fail OHLCV fetch | Print message; exit(1) | `logger.error("All tickers failed OHLCV fetch", extra={"ticker_count":…})` |
@@ -201,3 +201,69 @@ YF_RATE_COUNTER_FILE=temp/screener/yf_rate_counters.json
 - **`screener.py`:** Add `print(f"[Discovery] Fetching top 100 stocks for sector: {sector['name']}...")` inside the sector loop, immediately before the `get_sector_shortlist()` call.
 - **`data_fetcher.py`:** Add `print(f"[Fetcher] Fetching OHLCV for {ticker}: {i+1} of {total}", flush=True)` at the start of processing each ticker in `fetch_ohlcv()`. `total = len(tickers)` is known upfront. `flush=True` ensures lines appear immediately for large batches.
 - **Test Strategy:** Add to `test_screener_fetcher.py` — assert per-ticker print is called N times for N input tickers. Add to `test_screener_cli.py` — assert sector discovery print fires per sector.
+
+---
+
+## Revision [2026-03-27] — change-id: ib-fallback-prompt
+
+### Requirements
+- [x] R-FETCH-10: When `IB_HOST` is **not set**, log `"IB not configured — skipping IB source"` and proceed (current silent behaviour formalised).
+- [x] R-FETCH-11: When `IB_HOST` is **set** but IB Gateway connection fails (`ConnectionRefusedError` / `asyncio.TimeoutError`), raise `IBConnectionFailed` rather than silently returning `{}`.
+- [x] R-UI-14: `screener.py` catches `IBConnectionFailed` and prompts `"IB Gateway unreachable. Continue with yfinance? [y/n]: "`. If `"n"` → `sys.exit(1)`. If `"y"` → retry `fetch_ohlcv` with `skip_ib=True` (IB bypassed for all remaining calls).
+- [x] R-UI-15: The user's answer is remembered for the rest of the run (if rate-limit pause triggers a retry, the IB fallback is not re-prompted).
+- [x] R-FETCH-12: `fetch_ohlcv` gains a `skip_ib: bool = False` parameter. When `True`, the IB source block is skipped regardless of env vars.
+
+### Unhappy Paths
+- **IB_HOST not set:** Log info only; `skip_ib` remains False; IB source block not entered (existing behaviour, now documented as R-FETCH-10).
+- **IB_HOST set, connection times out:** `IBConnectionFailed` raised → propagates to `screener.py` → user is prompted → either exit(1) or retry with `skip_ib=True`.
+- **IB_HOST set, user answers "y" twice (if rate-limit forces retry):** `skip_ib=True` is preserved in the retry loop; prompt does not fire again.
+- **IB_HOST set, `ib_async` not installed:** Existing `IB is None` branch logs a warning; does NOT raise `IBConnectionFailed` (library absence vs connection failure are distinct failure modes).
+- **User presses Ctrl-C at prompt:** `_safe_input` handles `KeyboardInterrupt` → `sys.exit(0)` (consistent with existing prompts).
+
+### Technical Plan
+- **`data_fetcher.py`:**
+  - Add `class IBConnectionFailed(Exception)` near the top of the file.
+  - Modify `_fetch_ib_async`: replace the `except (ConnectionRefusedError, asyncio.TimeoutError)` block that returns `{}` with `raise IBConnectionFailed(host, port, str(exc))`.
+  - Add `skip_ib: bool = False` parameter to `fetch_ohlcv`; guard the IB source block with `if resolved_ib_host is not None and not skip_ib:`.
+- **`screener.py`:**
+  - Import `IBConnectionFailed` from `screener.data_fetcher`.
+  - At the OHLCV fetch call site (Step 5), wrap in a try/except that catches `IBConnectionFailed`, prompts user, sets `_skip_ib = True`, and calls `fetch_ohlcv(..., skip_ib=True)`.
+  - Track `_skip_ib` as a local variable so the rate-limit retry loop (change-id: rate-limit-pause) can reuse it.
+- **Validation:** `IBConnectionFailed` must carry `host` and `port` for the error message.
+- **Test Strategy:** `test_screener_fetcher.py` — test that `IBConnectionFailed` is raised when `_fetch_ib_async` receives `ConnectionRefusedError`. `test_screener_cli.py` — mock `fetch_ohlcv` to raise `IBConnectionFailed`; assert user is prompted; assert re-call uses `skip_ib=True`.
+
+---
+
+## Revision [2026-03-27] — change-id: rate-limit-pause
+
+### Requirements
+- [x] R-UI-16: When `YFRateLimitExceeded` is raised during `fetch_ohlcv`, instead of crashing, `screener.py` must pause and prompt: `"[w]ait {N}s and continue / [s]top: "`.
+- [x] R-UI-17: `N` (wait seconds) is auto-calculated from `exc.reset_at` minus current UTC time, rounded up to the nearest second, minimum 1 s.
+- [x] R-UI-18: If user enters `"w"` (wait): `time.sleep(N)`, then re-call `fetch_ohlcv` for the same full ticker list. Already-cached tickers are served from cache (no duplicate fetches). Resume is automatic via cache-hit semantics.
+- [x] R-UI-19: If user enters `"s"` (stop): `sys.exit(1)`.
+- [x] R-UI-20: The prompt fires every time a limit is hit (user may hit the limit again after waiting if the minute window refills before all tickers are fetched).
+
+### Unhappy Paths
+- **Limit hit mid-batch:** `YFRateLimitExceeded` propagates from `limiter.check_and_increment()` inside the yfinance loop in `fetch_ohlcv`. Already-fetched tickers are in cache, so re-calling `fetch_ohlcv` with the full list safely resumes from the correct position via cache hits.
+- **User enters invalid input at prompt:** Re-prompt (loop until `"w"` or `"s"` is entered).
+- **`exc.reset_at` is in the past:** `wait_secs` resolves to ≤ 0; clamp to 1 s minimum to avoid `time.sleep(0)` or negative values.
+- **User presses Ctrl-C during sleep:** `KeyboardInterrupt` propagates naturally; `screener.py` exits immediately (no explicit handling needed — this is correct behaviour).
+- **Limit hit again after waiting:** Prompt fires again; user can wait again or stop.
+
+### Technical Plan
+- **`screener.py`:** Replace the single `fetch_ohlcv` call and its `try/except YFRateLimitExceeded` block with a `while True` retry loop:
+  ```
+  _skip_ib = False
+  while True:
+      try:
+          ohlcv_data = fetch_ohlcv(tickers, cache, limiter, trade_date, skip_ib=_skip_ib)
+          break
+      except IBConnectionFailed as exc:
+          [prompt → set _skip_ib=True or exit]
+      except YFRateLimitExceeded as exc:
+          [calculate wait_secs from exc.reset_at → prompt → sleep or exit]
+  ```
+- **No changes to `data_fetcher.py` or `yf_rate_limiter.py`** — rate limit propagation is already correct; only the handler in `screener.py` changes.
+- **`time` module:** `import time` already present or add it.
+- **Validation:** `wait_secs = max(1, math.ceil((exc.reset_at - datetime.now(timezone.utc)).total_seconds()))`.
+- **Test Strategy:** `test_screener_cli.py` — mock `fetch_ohlcv` to raise `YFRateLimitExceeded` once then succeed; assert prompt fires; assert `time.sleep` called with correct seconds; assert second call to `fetch_ohlcv` made.

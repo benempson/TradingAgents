@@ -291,3 +291,290 @@ def test_ta_exception_marked_as_failed():
     assert "confidence" in result
     # summary must include the original exception message
     assert "Simulated TA failure" in result["summary"]
+
+
+# ── Tests 7-9: IB fallback interactive prompt (R-UI-14, R-UI-15) ──────────────
+
+
+def test_ib_fallback_prompts_user_and_retries(capsys):
+    """When fetch_ohlcv raises IBConnectionFailed, main() must prompt the user
+    and retry with skip_ib=True if user answers 'y'.
+    """
+    import datetime
+    from screener.screener import main
+    from screener.data_fetcher import IBConnectionFailed
+
+    sample_df = _make_sample_df()
+    minimal_config = _make_minimal_config()
+
+    ib_exc = IBConnectionFailed("127.0.0.1", 4002, "Connection refused")
+    call_count = {"n": 0}
+
+    def fetch_side_effect(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise ib_exc
+        return {"AAPL": sample_df, "MSFT": sample_df}
+
+    apply_results = [
+        {
+            "ticker": "AAPL",
+            "score": 0.8,
+            "indicators": _make_sample_indicators("AAPL"),
+            "filter_results": {k: True for k in ["trend_filter", "rsi_range", "macd_setup", "volume", "atr_pct"]},
+        }
+    ]
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=fetch_side_effect) as mock_fetch,
+        patch(
+            "screener.screener.compute_indicators",
+            side_effect=lambda df, ticker: _make_sample_indicators(ticker),
+        ),
+        patch("screener.screener.apply_criteria", return_value=apply_results),
+        patch("screener.screener._safe_input", return_value="y"),
+    ):
+        main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    # fetch_ohlcv called twice: once raising IBConnectionFailed, once with skip_ib=True
+    assert mock_fetch.call_count == 2
+    second_call_kwargs = mock_fetch.call_args_list[1].kwargs
+    assert second_call_kwargs.get("skip_ib") is True, (
+        f"Second fetch_ohlcv call must use skip_ib=True; kwargs were: {second_call_kwargs}"
+    )
+
+
+def test_ib_fallback_exits_on_no(capsys):
+    """When fetch_ohlcv raises IBConnectionFailed and user answers 'n', exit(1)."""
+    from screener.screener import main
+    from screener.data_fetcher import IBConnectionFailed
+
+    minimal_config = _make_minimal_config()
+    ib_exc = IBConnectionFailed("127.0.0.1", 4002, "Connection refused")
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=ib_exc),
+        patch("screener.screener._safe_input", return_value="n"),
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    assert exc_info.value.code == 1
+
+
+# ── Tests 10-13: rate-limit interactive pause (R-UI-16 through R-UI-20) ────────
+
+
+def test_rate_limit_pause_waits_and_retries(capsys):
+    """When fetch_ohlcv raises YFRateLimitExceeded, main() must prompt the user,
+    sleep the calculated wait time, and retry fetch_ohlcv.
+    """
+    import datetime
+    import math
+    from screener.screener import main
+    from screener.yf_rate_limiter import YFRateLimitExceeded
+
+    sample_df = _make_sample_df()
+    minimal_config = _make_minimal_config()
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    reset_at = now + datetime.timedelta(seconds=65)
+    rl_exc = YFRateLimitExceeded(window="minute", count=100, limit=100, reset_at=reset_at)
+
+    call_count = {"n": 0}
+
+    def fetch_side_effect(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise rl_exc
+        return {"AAPL": sample_df, "MSFT": sample_df}
+
+    apply_results = [
+        {
+            "ticker": "AAPL",
+            "score": 0.8,
+            "indicators": _make_sample_indicators("AAPL"),
+            "filter_results": {k: True for k in ["trend_filter", "rsi_range", "macd_setup", "volume", "atr_pct"]},
+        }
+    ]
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=fetch_side_effect) as mock_fetch,
+        patch(
+            "screener.screener.compute_indicators",
+            side_effect=lambda df, ticker: _make_sample_indicators(ticker),
+        ),
+        patch("screener.screener.apply_criteria", return_value=apply_results),
+        patch("screener.screener._safe_input", return_value="w"),
+        patch("screener.screener.time") as mock_time,
+    ):
+        main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    # Must have retried
+    assert mock_fetch.call_count == 2
+    # Must have slept for approximately wait_secs (65 seconds)
+    mock_time.sleep.assert_called_once()
+    slept = mock_time.sleep.call_args[0][0]
+    assert slept >= 60, f"Expected sleep >= 60s for a 65s window; got {slept}"
+
+
+def test_rate_limit_pause_stops_on_s(capsys):
+    """When fetch_ohlcv raises YFRateLimitExceeded and user enters 's', exit(1)."""
+    import datetime
+    from screener.screener import main
+    from screener.yf_rate_limiter import YFRateLimitExceeded
+
+    minimal_config = _make_minimal_config()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    rl_exc = YFRateLimitExceeded(
+        window="minute", count=100, limit=100, reset_at=now + datetime.timedelta(seconds=30)
+    )
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=rl_exc),
+        patch("screener.screener._safe_input", return_value="s"),
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    assert exc_info.value.code == 1
+
+
+def test_rate_limit_pause_reprompts_on_invalid_input(capsys):
+    """When user enters an invalid response at the rate-limit prompt, re-prompt
+    until a valid answer ('w' or 's') is received.
+    """
+    import datetime
+    from screener.screener import main
+    from screener.yf_rate_limiter import YFRateLimitExceeded
+
+    minimal_config = _make_minimal_config()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    rl_exc = YFRateLimitExceeded(
+        window="minute", count=100, limit=100, reset_at=now + datetime.timedelta(seconds=10)
+    )
+
+    input_responses = iter(["x", "?", "s"])  # two invalid, then stop
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=rl_exc),
+        patch("screener.screener._safe_input", side_effect=input_responses),
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    assert exc_info.value.code == 1
+
+
+def test_rate_limit_wait_secs_clamped_to_minimum(capsys):
+    """When exc.reset_at is in the past, wait_secs must be clamped to 1 (minimum)."""
+    import datetime
+    from screener.screener import main
+    from screener.yf_rate_limiter import YFRateLimitExceeded
+
+    sample_df = _make_sample_df()
+    minimal_config = _make_minimal_config()
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    # reset_at is in the past — calculated wait_secs would be ≤ 0
+    past_reset = now - datetime.timedelta(seconds=30)
+    rl_exc = YFRateLimitExceeded(window="minute", count=100, limit=100, reset_at=past_reset)
+
+    call_count = {"n": 0}
+
+    def fetch_side_effect(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise rl_exc
+        return {"AAPL": sample_df, "MSFT": sample_df}
+
+    apply_results = [
+        {
+            "ticker": "AAPL",
+            "score": 0.8,
+            "indicators": _make_sample_indicators("AAPL"),
+            "filter_results": {k: True for k in ["trend_filter", "rsi_range", "macd_setup", "volume", "atr_pct"]},
+        }
+    ]
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=False),
+        patch(
+            "screener.screener.prompt_watchlist_selection",
+            return_value=minimal_config["watchlists"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.fetch_ohlcv", side_effect=fetch_side_effect),
+        patch(
+            "screener.screener.compute_indicators",
+            side_effect=lambda df, ticker: _make_sample_indicators(ticker),
+        ),
+        patch("screener.screener.apply_criteria", return_value=apply_results),
+        patch("screener.screener._safe_input", return_value="w"),
+        patch("screener.screener.time") as mock_time,
+    ):
+        main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    mock_time.sleep.assert_called_once()
+    slept = mock_time.sleep.call_args[0][0]
+    assert slept >= 1, f"wait_secs must be clamped to minimum 1; got {slept}"

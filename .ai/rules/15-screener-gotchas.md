@@ -48,6 +48,16 @@ Filters in `config/discovery_criteria.json` are stored as plain dicts:
 ```
 `screener/discovery.py::_run_screener` converts them to `EquityQuery` instances at runtime (lowercasing the operator). Do NOT store pre-built `EquityQuery` objects in the config.
 
+## IB Gateway Connection Failure — Interactive Fallback (R-FETCH-11, R-UI-14)
+When `IB_HOST` is set but Gateway refuses the connection, `data_fetcher.py` raises
+`IBConnectionFailed` (NOT a silent `{}`). `screener.py` catches it and prompts:
+`"Continue fetching with yfinance instead? [y/n]:"`. If "y", retries `fetch_ohlcv`
+with `skip_ib=True`; if "n", `sys.exit(1)`. The `_skip_ib` flag is preserved across
+rate-limit pause retries so the user is never re-prompted for the same run.
+
+**Do NOT** revert `_fetch_ib_async` to return `{}` on connection error — the old
+silent fallback masked IB configuration problems.
+
 ## IB Request Delay — Production vs Test
 `IB_REQUEST_DELAY_S` defaults to `0.1` seconds in `data_fetcher.py` for unit-test speed.
 **In production, set `IB_REQUEST_DELAY_S=10`** to respect IB's ~6 req/min pacing limit.

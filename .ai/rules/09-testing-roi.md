@@ -53,3 +53,11 @@ When writing tests for scripts that read environment variables:
 ## THE EXIT GATE (REGRESSION)
 - **Mandate:** No Category A task is complete until **`python -m pytest tests/`** passes in full.
 - **Category B:** Running the full suite is optional but recommended.
+
+## TEST EXECUTION — ALWAYS USE BASH TOOL
+Run all tests yourself via the Bash tool. **Never ask the user to run tests on your behalf.** This includes:
+- Confirming the reproduction test fails (Step 6 of fix-bug)
+- Confirming the fix makes it pass (Step 8)
+- Running the full regression suite (Step 9)
+
+Use: `python -m pytest tests/<file>.py -v` and `python -m pytest tests/ -v`

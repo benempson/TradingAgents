@@ -139,7 +139,7 @@ All code produced in any workflow is production-ready by default. There are no "
 - No `type: ignore` annotations without a comment explaining why.
 
 ## 9. WORKFLOW FIRST
-Never write implementation code without first invoking the appropriate workflow from `AGENTS.md`. Reading a file, analysing architecture, or asking a clarifying question does not require a workflow. Writing code does.
+Never write implementation code without first invoking the appropriate workflow from `.ai/workflows/`. Reading a file, analysing architecture, or asking a clarifying question does not require a workflow. Writing code does.
 
 ## 10. REPLACE_ALL IDEMPOTENCY CHECK
 Before using `replace_all` (or any bulk find-and-replace), verify that `new_string` does NOT contain `old_string` as a substring.

@@ -17,7 +17,7 @@ Before writing a test, assess the nature of the change. Testing is mandatory for
 **Trigger:** Any change that affects *metadata, comments, or non-logic config*.
 - **Comments / Docstrings:** Updating docstrings, inline comments, type annotations with no logic change.
 - **Config Defaults:** Tweaking default model names or debate round counts in `DEFAULT_CONFIG`.
-- **Logging:** Adding/Removing `logger.info` calls.
+- **Logging:** Adding `logger.info` calls. (Removing logs is governed by Rule 06 instrumentation permanence — it is forbidden regardless of category.)
 - **Rules/Docs:** Updating `.ai/rules/`, `AGENTS.md`, `PROJECT_SUMMARY.md`.
 
 *Exclusion:* If a "config" change breaks an agent node or causes the graph to fail, it is **Category A**.

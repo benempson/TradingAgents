@@ -40,15 +40,15 @@ Debian netinstall does not include `curl` or `sudo`. When running setup commands
 - Install curl first: `apt install curl -y`
 - Drop `sudo` — run as root directly during initial setup
 
-## Spec Sync — Update deployment-spec.md With Every Infrastructure Change
-When any of the following change, append a revision entry to `docs/specs/infrastructure/deployment-spec.md` **in the same commit** as the implementation:
+## Spec Sync — Document Infrastructure Changes in the Same Commit
+When any of the following change, update the relevant documentation (deployment specs, `PROJECT_SUMMARY.md`, or inline comments) **in the same commit** as the implementation:
 - Architecture changes (networking path, SSL termination, proxy layer)
 - Secret/variable names or scoping
 - New automation scripts
 - VM OS, platform, or static IP config
 - GitHub Actions workflow steps
 
-Do not leave spec catchup for a separate session. The spec body sections (§2.7, §2.11, §4, etc.) and the revision history table must be updated together with the code.
+Do not leave documentation catchup for a separate session.
 
 ## `mail` Exit Code in Non-Interactive SSH Sessions
 `mailutils mail` exits non-zero in non-interactive SSH sessions even when the email sends successfully (it only exits 0 when reading from a real TTY). Never use `command -v mail && ... | mail ... && echo 'sent' || echo 'no-mail'` — the `|| no-mail` branch fires on a successful send. Use `if/then/else` to separate the existence check from the send:

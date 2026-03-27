@@ -1,14 +1,20 @@
 # DATA VALIDATION STANDARDS
 
-## 1. THE "PYDANTIC FIRST" RULE
-- **Forbidden:** Do not use manual `if/else` checks to validate structured external data (e.g., `if not isinstance(value, dict)`).
-- **Required:** Use Pydantic models for any structured data at system boundaries.
-- **Pattern:**
-    1. Define a Pydantic model (inline or in the relevant module).
-    2. Use `MyModel.model_validate(data)` to parse incoming data.
-    3. Raise `ValueError` with a clear message on validation failure — never swallow it silently.
+## 1. WHERE PYDANTIC IS AND ISN'T USED IN THIS PROJECT
 
-## 2. SYSTEM BOUNDARY VALIDATION
+**Pydantic IS used for:**
+- `BaseLLMClient` subclasses (inherit Pydantic via LangChain's `BaseChatModel`)
+- Field definitions on `ChatClaudeCode` and similar `BaseChatModel` subclasses
+- Any new `BaseLLMClient` or `BaseChatModel` subclass you create
+
+**Pydantic is NOT the pattern for:**
+- **Graph state** — uses `TypedDict`/`AnnotatedState` (see Rule 00-architecture)
+- **Tool return values** — must be plain strings (see Rule 00-architecture)
+- **Config dict** — `DEFAULT_CONFIG` is a plain Python dict
+
+Do not introduce Pydantic models for graph state or tool outputs — it breaks the LangGraph TypedDict contract and `ToolNode` expectations.
+
+## 2. VALIDATION AT SYSTEM BOUNDARIES
 Only validate at system boundaries — not inside internal helpers or between agent nodes:
 - **External data sources:** yfinance responses, news API payloads, tool return values from the LLM.
 - **User-provided config:** `DEFAULT_CONFIG` overrides passed at `TradingAgentsGraph` init time.

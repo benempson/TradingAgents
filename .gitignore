@@ -1,5 +1,11 @@
-/eval_results
+/.claude/agents
+/.claude/commands
+/.claude/logs
+/.claude/rules
 /.claude/settings.local.json
+
+CLAUDE.md
+/eval_results
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -21,19 +21,40 @@ description: Interactively drafts a structured requirement specification.
     -   Read `AGENTS.md` and `PROJECT_SUMMARY.md`.
     -   Analyze the user's intent against the architectural rules (layer separation, provider factory pattern, etc.).
 
-2b. **Complexity Assessment:**
-    -   **Assessment:** Follow the scoring protocol in `.ai/workflows/_complexity-assessment.md` (Section A). Evaluate the four dimensions based on the feature scope identified in Steps 1-2.
-    -   **Emit** the visible output block (Section B of `_complexity-assessment.md`).
-    -   **Routing:**
-        -   **Score 0-1** -> **Inline Mode.** Proceed to Step 3 as normal.
-        -   **Score 2+** -> **Orchestrator Mode.** Before Step 3, execute a Research Wave:
-            1.  Spawn 1-3 Scout agents (subagent_type: `Explore`) in parallel, one per affected architectural layer. Each Scout identifies existing patterns, interfaces, constraints, and potential failure modes in its layer.
-            2.  Wait for all Scouts to complete. Aggregate findings.
-            3.  Optionally spawn 1 Architect agent (subagent_type: `Plan`) to synthesize Scout findings into a requirements skeleton and unhappy-path checklist.
-            4.  Use the aggregated findings as the foundation for Step 3's drafting (the interactive user refinement loop still applies — the research just provides a stronger starting point).
+2b. **Solution Research (Orchestrated):**
+    -   **Purpose:** Before drafting, research how to solve the problem. This phase always runs — the depth scales with complexity, not a binary gate.
+    -   **Research Depth Decision:** Assess the feature scope from Steps 1-2:
+        -   **Shallow** (well-understood pattern, single layer, <3 files): The orchestrator performs the research inline — read the relevant source files, check existing patterns, and proceed to Step 3. No sub-agents needed.
+        -   **Standard** (new integration, unfamiliar area, or 2+ layers): Spawn research agents in parallel (see below).
+        -   **Deep** (novel capability, no existing pattern to follow, external library evaluation, or user explicitly requests thorough research): Spawn research agents with broader scope including web searches and documentation lookups.
+    -   **Emit** the research depth decision:
+        ```
+        RESEARCH DEPTH: [Shallow | Standard | Deep]
+        Rationale: [1-2 sentence justification]
+        ```
+    -   **Standard/Deep Research Wave:**
+        1.  **Codebase Scouts** — Spawn 1-3 agents (subagent_type: `Explore`) in parallel, one per affected architectural layer. Each identifies:
+            -   Existing patterns and interfaces in its layer
+            -   Constraints and invariants that the new feature must respect
+            -   Potential failure modes specific to that layer
+            -   Test fixtures and mocking patterns already in use
+        2.  **Solution Researchers** (Deep only) — Spawn 1-2 agents (subagent_type: `general-purpose`) in parallel to research approaches:
+            -   How do the relevant libraries (LangChain, LangGraph, yfinance, etc.) support this feature? Search documentation, read source code, check for known limitations.
+            -   Are there established patterns or community solutions for this type of problem?
+            -   What are the trade-offs between candidate approaches? (e.g., "subclass vs wrapper", "new node vs extending existing node", "sync vs async")
+            -   Each researcher returns a structured brief: **Approach**, **Pros**, **Cons**, **Risks**, **Recommended**.
+        3.  **Wait** for all agents to complete.
+        4.  **Synthesis:** The orchestrator aggregates all findings into a **Research Summary** containing:
+            -   **Existing Patterns:** What the codebase already does that's relevant
+            -   **Candidate Approaches:** 2-3 viable solutions with trade-offs (from Solution Researchers, or from the orchestrator's own analysis for Standard depth)
+            -   **Recommended Approach:** The orchestrator's recommendation with rationale
+            -   **Constraints Discovered:** Hard limits from the codebase (layer separation, TypedDict state, string-only tools, etc.)
+            -   **Open Questions:** Anything the research couldn't resolve — these become questions for the user in Step 3
+        5.  **Present** the Research Summary to the user before proceeding to Step 3.
+    -   **User Override:** If the user says "skip research" or "I already know how to do this", proceed directly to Step 3.
 
 3.  **Drafting (Iterative):**
-    -   Propose a **Requirements List** and **Technical Plan** based on `docs/specs/templates/feature-spec.md` (if it exists). In Orchestrator Mode, use the Scout/Architect findings as the draft foundation.
+    -   Propose a **Requirements List** and **Technical Plan** based on `docs/specs/templates/feature-spec.md` (if it exists). Use the Research Summary from Step 2b as the draft foundation — the recommended approach becomes the default technical plan, and discovered constraints become architectural guardrails in the spec.
     -   **Constraint (Unhappy Paths — MANDATORY):** For every happy-path requirement, you MUST enumerate its corresponding failure modes in the spec. Each failure mode must specify: the trigger condition, the expected system response, and whether it requires a log entry or raised exception. Do not write "handle errors gracefully" — name the specific case.
     -   **Constraint (Testing):** You MUST identify the target test files and the key test scenarios. Don't just say "we will test it"; say "we need a test that mocks `subprocess.run` to return a non-zero exit code and verifies `RuntimeError` is raised."
     -   **Ask:** *"Here is the structured plan. Are there missing requirements, unhandled failure modes, or architectural risks? (Yes/No/Comment)"*

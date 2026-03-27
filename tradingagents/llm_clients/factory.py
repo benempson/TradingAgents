@@ -46,4 +46,8 @@ def create_llm_client(
     if provider_lower == "google":
         return GoogleClient(model, base_url, **kwargs)
 
+    if provider_lower == "claude_code":
+        from .claude_code_client import ClaudeCodeClient
+        return ClaudeCodeClient(model, base_url, **kwargs)
+
     raise ValueError(f"Unsupported LLM provider: {provider}")

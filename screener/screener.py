@@ -133,6 +133,56 @@ def resolve_trade_date(date_str: str | None) -> str:
     return resolved.strftime("%Y-%m-%d")
 
 
+# ── TA provider resolution ────────────────────────────────────────────────────
+
+# Models to use when the claude_code provider is selected.  These are the
+# current-generation Claude models appropriate for deep analysis.
+_CLAUDE_CODE_DEEP_MODEL = "claude-opus-4-6"
+_CLAUDE_CODE_QUICK_MODEL = "claude-sonnet-4-6"
+
+# Priority order for auto-detection when SCREENER_TA_PROVIDER is not set.
+_PROVIDER_KEY_MAP: list[tuple[str, str]] = [
+    ("OPENAI_API_KEY", "openai"),
+    ("ANTHROPIC_API_KEY", "anthropic"),
+    ("GOOGLE_API_KEY", "google"),
+]
+
+
+def _resolve_ta_provider() -> str:
+    """Determine which LLM provider to use for the TradingAgents deep analysis.
+
+    Resolution order:
+    1. ``SCREENER_TA_PROVIDER`` env var — explicit override (any supported value).
+    2. ``OPENAI_API_KEY`` present → ``"openai"``.
+    3. ``ANTHROPIC_API_KEY`` present → ``"anthropic"``.
+    4. ``GOOGLE_API_KEY`` present → ``"google"``.
+    5. Default → ``"claude_code"`` (works with Claude Max; no API key required).
+
+    Returns:
+        Provider name string compatible with ``DEFAULT_CONFIG["llm_provider"]``.
+    """
+    explicit = os.environ.get("SCREENER_TA_PROVIDER")
+    if explicit:
+        logger.info(
+            "TA provider set via SCREENER_TA_PROVIDER",
+            extra={"provider": explicit},
+        )
+        return explicit
+
+    for env_var, provider in _PROVIDER_KEY_MAP:
+        if os.environ.get(env_var):
+            logger.info(
+                "TA provider auto-detected from API key",
+                extra={"env_var": env_var, "provider": provider},
+            )
+            return provider
+
+    logger.info(
+        "No API keys found — defaulting TA provider to claude_code",
+    )
+    return "claude_code"
+
+
 # ── interactive prompts ───────────────────────────────────────────────────────
 
 
@@ -557,6 +607,17 @@ def main(top_n: int = 5, date_str: str | None = None, no_ta: bool = False) -> No
         return
 
     ta_config = dict(DEFAULT_CONFIG)
+    provider = _resolve_ta_provider()
+    ta_config["llm_provider"] = provider
+    if provider == "claude_code":
+        # claude_code uses Claude Max (no API key); set appropriate model names.
+        ta_config["deep_think_llm"] = _CLAUDE_CODE_DEEP_MODEL
+        ta_config["quick_think_llm"] = _CLAUDE_CODE_QUICK_MODEL
+    print(
+        f"[TA] Using provider: {provider} "
+        f"(deep: {ta_config['deep_think_llm']}, "
+        f"quick: {ta_config['quick_think_llm']})"
+    )
     ta = TradingAgentsGraph(config=ta_config)
 
     top_survivors = survivors[:top_n]

@@ -267,3 +267,24 @@ YF_RATE_COUNTER_FILE=temp/screener/yf_rate_counters.json
 - **`time` module:** `import time` already present or add it.
 - **Validation:** `wait_secs = max(1, math.ceil((exc.reset_at - datetime.now(timezone.utc)).total_seconds()))`.
 - **Test Strategy:** `test_screener_cli.py` — mock `fetch_ohlcv` to raise `YFRateLimitExceeded` once then succeed; assert prompt fires; assert `time.sleep` called with correct seconds; assert second call to `fetch_ohlcv` made.
+
+---
+
+## Revision [2026-03-27] — change-id: fix-ta-provider-autodetect
+
+### Requirements
+- [x] R-TA-01: Before constructing `TradingAgentsGraph`, resolve the LLM provider via `_resolve_ta_provider()` and print `[TA] Using provider: {provider} (deep: {model}, quick: {model})`.
+- [x] R-TA-02: `_resolve_ta_provider()` checks `SCREENER_TA_PROVIDER` env var first (explicit override); accepts any provider name supported by the factory.
+- [x] R-TA-03: If `SCREENER_TA_PROVIDER` is not set, auto-detect from API keys in priority order: `OPENAI_API_KEY` → `"openai"`, `ANTHROPIC_API_KEY` → `"anthropic"`, `GOOGLE_API_KEY` → `"google"`.
+- [x] R-TA-04: If no API keys are found, default to `"claude_code"` (works with Claude Max subscription; no API key required).
+- [x] R-TA-05: When `claude_code` is selected, set `deep_think_llm = "claude-opus-4-6"` and `quick_think_llm = "claude-sonnet-4-6"` in `ta_config`; otherwise keep the `DEFAULT_CONFIG` model names.
+
+### Unhappy Paths
+- **`SCREENER_TA_PROVIDER` set to an unsupported value:** `TradingAgentsGraph` factory raises `ValueError` with the unsupported provider name — same error as any other misconfigured provider; no special handling in the screener.
+- **No API keys, `claude` CLI not authenticated:** `TradingAgentsGraph` initialises successfully; `ta.propagate()` fails at LLM call time with a `RuntimeError` from the subprocess shim — caught by `_run_ta_for_ticker()` and marked `ANALYSIS FAILED`.
+- **N/A:** No async ops, no external data, no subprocess calls within `_resolve_ta_provider` itself.
+
+### Technical Plan
+- **`screener/screener.py`:** Add `_resolve_ta_provider() -> str` function (module-level) with constants `_CLAUDE_CODE_DEEP_MODEL` and `_CLAUDE_CODE_QUICK_MODEL` for the default Claude model names. In `main()`, call `_resolve_ta_provider()`, apply result to `ta_config`, update models if `claude_code`, then print the selection before constructing `TradingAgentsGraph`.
+- **Environment variable added:** `SCREENER_TA_PROVIDER` — document in `AGENTS.md` env var table.
+- **Test Strategy:** `test_screener_cli.py` — 5 parametric-style tests for each resolution path (explicit env var, openai key, anthropic key, google key, no keys → claude_code).

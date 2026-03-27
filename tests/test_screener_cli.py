@@ -578,3 +578,64 @@ def test_rate_limit_wait_secs_clamped_to_minimum(capsys):
     mock_time.sleep.assert_called_once()
     slept = mock_time.sleep.call_args[0][0]
     assert slept >= 1, f"wait_secs must be clamped to minimum 1; got {slept}"
+
+
+# ── Tests: _resolve_ta_provider env-var priority and auto-detect ───────────────
+
+
+def test_resolve_ta_provider_explicit_env_var(monkeypatch):
+    """SCREENER_TA_PROVIDER env var takes precedence over all API key detection."""
+    from screener.screener import _resolve_ta_provider
+
+    monkeypatch.setenv("SCREENER_TA_PROVIDER", "anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")  # present but must be ignored
+
+    assert _resolve_ta_provider() == "anthropic"
+
+
+def test_resolve_ta_provider_openai_key_detected(monkeypatch):
+    """OPENAI_API_KEY present (and no SCREENER_TA_PROVIDER) → openai provider."""
+    from screener.screener import _resolve_ta_provider
+
+    monkeypatch.delenv("SCREENER_TA_PROVIDER", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-fake")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    assert _resolve_ta_provider() == "openai"
+
+
+def test_resolve_ta_provider_anthropic_key_detected(monkeypatch):
+    """ANTHROPIC_API_KEY present (no OPENAI key) → anthropic provider."""
+    from screener.screener import _resolve_ta_provider
+
+    monkeypatch.delenv("SCREENER_TA_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-fake")
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    assert _resolve_ta_provider() == "anthropic"
+
+
+def test_resolve_ta_provider_google_key_detected(monkeypatch):
+    """GOOGLE_API_KEY present (no other keys) → google provider."""
+    from screener.screener import _resolve_ta_provider
+
+    monkeypatch.delenv("SCREENER_TA_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "fake-key")
+
+    assert _resolve_ta_provider() == "google"
+
+
+def test_resolve_ta_provider_defaults_to_claude_code(monkeypatch):
+    """No API keys and no SCREENER_TA_PROVIDER → claude_code (no key required)."""
+    from screener.screener import _resolve_ta_provider
+
+    monkeypatch.delenv("SCREENER_TA_PROVIDER", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+    assert _resolve_ta_provider() == "claude_code"

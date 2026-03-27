@@ -21,8 +21,19 @@ description: Interactively drafts a structured requirement specification.
     -   Read `AGENTS.md` and `PROJECT_SUMMARY.md`.
     -   Analyze the user's intent against the architectural rules (layer separation, provider factory pattern, etc.).
 
+2b. **Complexity Assessment:**
+    -   **Assessment:** Follow the scoring protocol in `.ai/workflows/_complexity-assessment.md` (Section A). Evaluate the four dimensions based on the feature scope identified in Steps 1-2.
+    -   **Emit** the visible output block (Section B of `_complexity-assessment.md`).
+    -   **Routing:**
+        -   **Score 0-1** -> **Inline Mode.** Proceed to Step 3 as normal.
+        -   **Score 2+** -> **Orchestrator Mode.** Before Step 3, execute a Research Wave:
+            1.  Spawn 1-3 Scout agents (subagent_type: `Explore`) in parallel, one per affected architectural layer. Each Scout identifies existing patterns, interfaces, constraints, and potential failure modes in its layer.
+            2.  Wait for all Scouts to complete. Aggregate findings.
+            3.  Optionally spawn 1 Architect agent (subagent_type: `Plan`) to synthesize Scout findings into a requirements skeleton and unhappy-path checklist.
+            4.  Use the aggregated findings as the foundation for Step 3's drafting (the interactive user refinement loop still applies — the research just provides a stronger starting point).
+
 3.  **Drafting (Iterative):**
-    -   Propose a **Requirements List** and **Technical Plan** based on `docs/specs/templates/feature-spec.md` (if it exists).
+    -   Propose a **Requirements List** and **Technical Plan** based on `docs/specs/templates/feature-spec.md` (if it exists). In Orchestrator Mode, use the Scout/Architect findings as the draft foundation.
     -   **Constraint (Unhappy Paths — MANDATORY):** For every happy-path requirement, you MUST enumerate its corresponding failure modes in the spec. Each failure mode must specify: the trigger condition, the expected system response, and whether it requires a log entry or raised exception. Do not write "handle errors gracefully" — name the specific case.
     -   **Constraint (Testing):** You MUST identify the target test files and the key test scenarios. Don't just say "we will test it"; say "we need a test that mocks `subprocess.run` to return a non-zero exit code and verifies `RuntimeError` is raised."
     -   **Ask:** *"Here is the structured plan. Are there missing requirements, unhandled failure modes, or architectural risks? (Yes/No/Comment)"*

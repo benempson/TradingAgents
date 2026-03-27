@@ -53,7 +53,16 @@ usage: Trigger by typing "/update-spec"
     - **Mandatory Integration:** Add explicit tasks for **Validation** (Rule 12), **TDD** (Rule 08/09), and **Observability** (Rule 11).
     - **Mandatory Unhappy Path Tasks:** For every failure mode, generate a discrete checklist item covering both the logic (try/except block, fallback) and the log message.
 
-## 6. EXECUTION LOOP (DRIVEN BY PLAN)
+## 5b. COMPLEXITY ASSESSMENT
+- **Assessment:** Follow the scoring protocol in `.ai/workflows/_complexity-assessment.md` (Section A). Evaluate the four dimensions against the plan generated in Step 5.
+- **Emit** the visible output block (Section B of `_complexity-assessment.md`).
+- **Routing:**
+    - **Score 0-1** -> **Inline Mode.** Proceed to Step 6 (current sequential execution loop).
+    - **Score 2+** -> **Orchestrator Mode.** Proceed to Step 6b (orchestrated execution).
+- **Parallel Groups (Orchestrator Mode only):** Append a `## Parallel Groups` section to `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md` per Section D of `_complexity-assessment.md`.
+
+## 6. EXECUTION LOOP — INLINE MODE (DRIVEN BY PLAN)
+- **Applies when:** Complexity Score 0-1 (Inline Mode).
 - **Production-Ready Mandate:** No "TODO" comments or hardcoded placeholders allowed.
 - **The Loop:** Read `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md`. Find the first unchecked item `[ ]`.
 - **Standard Task Protocol:**
@@ -66,12 +75,25 @@ usage: Trigger by typing "/update-spec"
         -   **IF CATEGORY B:** Ask user to verify the change has the expected effect.
 - **Update:** Once verified, mark `[x]` in both `IMPLEMENTATION_PLAN-{spec-stem}-{change-id}.md` and the **Target Spec** file.
 
+## 6b. EXECUTION LOOP — ORCHESTRATOR MODE (WAVE-BASED)
+- **Applies when:** Complexity Score 2+ (Orchestrator Mode).
+- **Protocol:** Follow the Wave Execution Model from `.ai/workflows/_complexity-assessment.md` Section C.2.
+- **Research Wave:** Spawn 1-3 Scout agents in parallel to explore each affected layer. Wait for all to complete.
+- **Planning Wave (optional):** If 10+ plan items with unclear dependencies, spawn 1 Architect agent to refine parallel groups.
+- **Execution Wave(s):**
+    1. Read the `## Parallel Groups` section. Identify the first wave of independent groups.
+    2. Spawn 1-3 Implementor agents per wave, each with scoped checklist items, file whitelist, and mandatory rule injections (Section C.3).
+    3. Wait for wave completion. Mark items `[x]`.
+    4. Repeat for subsequent waves.
+- **Emit wave status** per Section C.4.
+- **After all waves complete:** Proceed to Step 7 (Completion & Security).
+
 ## 7. COMPLETION & SECURITY
 - **Regression Check:** Ask user to execute `python -m pytest tests/`. Do not proceed until green.
 
 ## 8. ADVERSARIAL SECURITY REVIEW (RULE 13)
 - **Persona Switch:** Activate Rule 13 ("The Red Team").
-- **Action:** Review the code written in this session.
+- **Action:** Review the code written in this session. **Orchestrator Mode:** Review ALL files modified across ALL Implementor agents (see Section G of `_complexity-assessment.md`). Security review is never delegated to sub-agents.
 - **Challenge:** Check for subprocess injection, unvalidated external data, and credential exposure.
 - **Output:**
   -   If Secure: "Security Review Passed: [Reason]"

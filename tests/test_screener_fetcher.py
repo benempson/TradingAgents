@@ -344,3 +344,74 @@ def test_fetcher_writes_to_cache_after_fetch(tmp_path, monkeypatch):
     cached = cache.get("NVDA_ohlcv_1y")
     assert cached is not None, "Fetched DataFrame must be stored in the cache"
     assert isinstance(cached, pd.DataFrame)
+
+
+# ── Test 11: dot-ticker cache key sanitisation ─────────────────────────────────
+
+
+def test_fetcher_handles_dot_ticker_cache_key(tmp_path, monkeypatch):
+    """Tickers with exchange suffixes containing dots (e.g. TAP.L for London SE)
+    must not raise ValueError from the cache key validator.
+
+    The cache key security regex only allows [A-Za-z0-9_-]. Dots in ticker
+    symbols (common in LSE, TSX, ASX listings) must be replaced with hyphens
+    before the key is passed to CacheStore — so TAP.L → TAP-L_ohlcv_1y.
+
+    The result dict must still use the original ticker symbol as the key so
+    downstream code can look up results by the symbol it submitted.
+    """
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+
+    cache = _make_fresh_cache(tmp_path)
+    limiter = _make_limiter()
+    yf_df = make_yf_dataframe(250)
+
+    with patch("screener.data_fetcher.yf") as mock_yf:
+        mock_yf.download.return_value = yf_df
+
+        from screener.data_fetcher import fetch_ohlcv
+
+        # Must not raise ValueError: Cache key 'TAP.L_ohlcv_1y' contains unsafe characters
+        result = fetch_ohlcv(["TAP.L"], cache, limiter, "2026-03-27", ib_host=None)
+
+    assert "TAP.L" in result, "Result must be keyed by the original ticker symbol"
+    assert isinstance(result["TAP.L"], pd.DataFrame)
+    # Verify the sanitised key was used for storage (dot → hyphen)
+    assert cache.get("TAP-L_ohlcv_1y") is not None, (
+        "Cache entry must be stored under sanitised key 'TAP-L_ohlcv_1y'"
+    )
+
+
+# ── Test 12: per-ticker OHLCV progress lines printed (R-UI-13) ────────────────
+
+
+def test_fetcher_prints_per_ticker_progress(tmp_path, monkeypatch, capsys):
+    """fetch_ohlcv() must print '[Fetcher] Fetching OHLCV for {ticker}: {N} of {total}'
+    for each cache-miss ticker (R-UI-13).
+
+    With 3 tickers and an empty cache, all 3 are fetched via yfinance.
+    The expected output lines are:
+        [Fetcher] Fetching OHLCV for AAPL: 1 of 3
+        [Fetcher] Fetching OHLCV for MSFT: 2 of 3
+        [Fetcher] Fetching OHLCV for NVDA: 3 of 3
+    """
+    monkeypatch.delenv("ALPHA_VANTAGE_API_KEY", raising=False)
+
+    cache = _make_fresh_cache(tmp_path)
+    limiter = _make_limiter()
+    yf_df = make_yf_dataframe(250)
+    tickers = ["AAPL", "MSFT", "NVDA"]
+
+    with patch("screener.data_fetcher.yf") as mock_yf:
+        mock_yf.download.return_value = yf_df
+
+        from screener.data_fetcher import fetch_ohlcv
+
+        fetch_ohlcv(tickers, cache, limiter, "2026-03-27", ib_host=None)
+
+    captured = capsys.readouterr()
+    for i, ticker in enumerate(tickers, start=1):
+        expected = f"[Fetcher] Fetching OHLCV for {ticker} (yfinance): {i} of {len(tickers)}"
+        assert expected in captured.out, (
+            f"Expected progress line '{expected}' in stdout.\nActual stdout:\n{captured.out}"
+        )

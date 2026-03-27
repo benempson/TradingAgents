@@ -26,6 +26,8 @@ Adds a two-stage pre-filter CLI tool that identifies technically interesting can
 | R-UI-06 | Both paths: numbered list of screening criteria from `config/screening_criteria.json`; invalid → exit(1) |
 | R-UI-07 | `--date` defaults to today; Saturday/Sunday rolls back to previous Friday |
 | R-UI-08 | Progress printed with module prefixes: `[Discovery]`, `[Fetcher]`, `[Screener]`, `[TA]`; logging module only |
+| R-UI-12 | Sector mode: before each sector query print `[Discovery] Fetching top 100 stocks for sector: {sector name}...` |
+| R-UI-13 | OHLCV fetch: for each ticker print `[Fetcher] Fetching OHLCV for {ticker}: {N} of {total}` where total is all tickers in the input list and N is 1-based position |
 | R-UI-09 | Results table: `Rank \| Ticker \| Score \| RSI \| MACD Hist \| Vol Ratio \| ATR%` |
 | R-UI-10 | If `--no-ta` absent and survivors exist: prompt to run `ta.propagate()` sequentially on top-N |
 | R-UI-11 | Final summary table after TA: `Ticker \| Score \| RSI \| TA Decision \| Confidence \| Summary` |
@@ -183,3 +185,19 @@ YF_RATE_COUNTER_FILE=temp/screener/yf_rate_counters.json
 | FM-10 | Cache directory not writable | Print permission message; exit(1) | `logger.error("Cache directory not writable", extra={"path":…}, exc_info=True)` |
 | FM-11 | `stockstats.wrap()` exception | Return `None` for whole dict; ticker excluded from screening | `logger.error("Indicator computation failed", extra={"ticker":…}, exc_info=True)` |
 | FM-12 | `--date` is Saturday or Sunday | Roll back to most recent Friday; print info message | — (not an error) |
+
+---
+
+## Revision [2026-03-27] — change-id: add-discovery-fetch-progress
+
+### Requirements
+- [x] R-UI-12: Before each sector query, print `[Discovery] Fetching top 100 stocks for sector: {sector name}...` to console
+- [x] R-UI-13: For each ticker in `fetch_ohlcv()`, print `[Fetcher] Fetching OHLCV for {ticker}: {N} of {total}` to console, where `total` is `len(tickers)` and `N` is 1-based
+
+### Unhappy Paths
+- **N/A** — pure observability additions; no new control flow or external calls.
+
+### Technical Plan
+- **`screener.py`:** Add `print(f"[Discovery] Fetching top 100 stocks for sector: {sector['name']}...")` inside the sector loop, immediately before the `get_sector_shortlist()` call.
+- **`data_fetcher.py`:** Add `print(f"[Fetcher] Fetching OHLCV for {ticker}: {i+1} of {total}", flush=True)` at the start of processing each ticker in `fetch_ohlcv()`. `total = len(tickers)` is known upfront. `flush=True` ensures lines appear immediately for large batches.
+- **Test Strategy:** Add to `test_screener_fetcher.py` — assert per-ticker print is called N times for N input tickers. Add to `test_screener_cli.py` — assert sector discovery print fires per sector.

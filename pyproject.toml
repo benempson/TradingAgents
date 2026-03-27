@@ -17,6 +17,7 @@ dependencies = [
     "langchain-openai>=0.3.23",
     "langgraph>=0.4.8",
     "pandas>=2.3.0",
+    "pyarrow>=14.0.0",
     "parsel>=1.10.0",
     "pytz>=2025.2",
     "questionary>=2.1.0",

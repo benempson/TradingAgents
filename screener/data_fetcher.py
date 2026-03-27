@@ -57,6 +57,20 @@ _AV_CALL_LIMIT = 20
 _IB_REQUEST_DELAY_S: float = float(os.environ.get("IB_REQUEST_DELAY_S", "0.1"))
 
 
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+
+def _cache_key(ticker: str) -> str:
+    """Return a safe CacheStore key for a ticker's OHLCV data.
+
+    Exchange-suffixed tickers (e.g. TAP.L, RY.TO, BHP.AX) contain dots that
+    fail the CacheStore security validator (which forbids path-traversal chars).
+    Dots are replaced with hyphens so the key stays unique and filesystem-safe.
+    The original ticker symbol is preserved for result-dict lookups.
+    """
+    return f"{ticker.replace('.', '-')}_ohlcv_1y"
+
+
 # ── IB async helper ───────────────────────────────────────────────────────────
 
 
@@ -320,12 +334,17 @@ def fetch_ohlcv(
 
     # ── Source 0: Cache ────────────────────────────────────────────────────────
     for ticker in tickers:
-        cached = cache.get(f"{ticker}_ohlcv_1y")
+        cached = cache.get(_cache_key(ticker))
         if cached is not None:
             logger.info("Cache hit for %s", ticker)
             result[ticker] = cached
         else:
             pending_after_cache.append(ticker)
+
+    # Counter shared across all fetch sources so the user sees a single
+    # unbroken N-of-total sequence regardless of which source serves each ticker.
+    _total_to_fetch = len(pending_after_cache)
+    _fetch_counter = 0
 
     if not pending_after_cache:
         return result
@@ -357,9 +376,16 @@ def fetch_ohlcv(
             pending_after_ib = []
             for ticker in pending_after_cache:
                 if ticker in ib_raw:
+                    # IB returned data — print progress here; AV/yfinance won't see this ticker.
+                    _fetch_counter += 1
+                    print(
+                        f"[Fetcher] Fetching OHLCV for {ticker} (IB Gateway):"
+                        f" {_fetch_counter} of {_total_to_fetch}",
+                        flush=True,
+                    )
                     normalised = _normalise(ib_raw[ticker], trade_date)
                     if normalised is not None:
-                        cache.put(f"{ticker}_ohlcv_1y", normalised)
+                        cache.put(_cache_key(ticker), normalised)
                         result[ticker] = normalised
                     else:
                         logger.warning(
@@ -368,6 +394,7 @@ def fetch_ohlcv(
                         )
                         pending_after_ib.append(ticker)
                 else:
+                    # IB had no data — falls through to AV/yfinance; progress printed there.
                     pending_after_ib.append(ticker)
 
     if not pending_after_ib:
@@ -379,7 +406,7 @@ def fetch_ohlcv(
 
     for ticker in pending_after_ib:
         if av_api_key is None:
-            # No AV key configured — fall through to yfinance directly.
+            # No AV key — skip directly to yfinance; progress printed there.
             pending_after_av.append(ticker)
             continue
 
@@ -388,6 +415,7 @@ def fetch_ohlcv(
                 "Alpha Vantage near daily limit (%d/25), switching remaining tickers to yfinance",
                 av_call_count,
             )
+            # Progress printed in yfinance loop.
             pending_after_av.append(ticker)
             continue
 
@@ -398,14 +426,21 @@ def fetch_ohlcv(
             if df_raw is not None:
                 normalised = _normalise(df_raw, trade_date)
                 if normalised is not None:
-                    cache.put(f"{ticker}_ohlcv_1y", normalised)
+                    cache.put(_cache_key(ticker), normalised)
                     result[ticker] = normalised
+                    # Print progress here — this ticker won't appear in the yfinance loop.
+                    _fetch_counter += 1
+                    print(
+                        f"[Fetcher] Fetching OHLCV for {ticker} (Alpha Vantage):"
+                        f" {_fetch_counter} of {_total_to_fetch}",
+                        flush=True,
+                    )
                     logger.info(
                         "Alpha Vantage fetch success",
                         extra={"ticker": ticker, "rows": len(normalised)},
                     )
                     continue
-            # Parsed successfully but no usable rows — fall through.
+            # Parsed successfully but no usable rows — fall through to yfinance.
             logger.warning(
                 "Alpha Vantage returned no usable data for %s — falling through to yfinance",
                 ticker,
@@ -422,6 +457,12 @@ def fetch_ohlcv(
 
     # ── Source 3: yfinance ─────────────────────────────────────────────────────
     for ticker in pending_after_av:
+        _fetch_counter += 1
+        print(
+            f"[Fetcher] Fetching OHLCV for {ticker} (yfinance):"
+            f" {_fetch_counter} of {_total_to_fetch}",
+            flush=True,
+        )
         # Raises YFRateLimitExceeded if any rolling window is exhausted.
         # This propagates directly to the caller as specified.
         limiter.check_and_increment()
@@ -453,7 +494,7 @@ def fetch_ohlcv(
             logger.warning("No data for %s from any source — skipping", ticker)
             continue
 
-        cache.put(f"{ticker}_ohlcv_1y", normalised)
+        cache.put(_cache_key(ticker), normalised)
         result[ticker] = normalised
         logger.info(
             "yfinance fetch success",

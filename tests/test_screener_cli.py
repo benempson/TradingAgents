@@ -216,6 +216,62 @@ def test_main_no_ta_runs_without_raising(capsys):
     assert "MSFT" in captured.out
 
 
+# ── Test 6a: sector discovery prints sector-start line (R-UI-12) ──────────────
+
+
+def test_discovery_prints_sector_fetch_line(capsys):
+    """main() in sector mode must print '[Discovery] Fetching top 100 stocks for
+    sector: {name}...' before each sector's get_sector_shortlist() call (R-UI-12).
+    """
+    from screener.screener import main
+
+    sample_df = _make_sample_df()
+    minimal_config = _make_minimal_config()
+    selected_sectors = minimal_config["sectors"]  # 1 sector: Technology
+
+    with (
+        patch("screener.screener.load_config", return_value=minimal_config),
+        patch("screener.screener.resolve_trade_date", return_value="2026-03-27"),
+        patch("screener.screener.prompt_sector_mode", return_value=True),
+        patch("screener.screener.prompt_sector_selection", return_value=selected_sectors),
+        patch(
+            "screener.screener.prompt_discovery_criteria",
+            return_value=minimal_config["discovery_criteria"][0],
+        ),
+        patch(
+            "screener.screener.prompt_screening_criteria",
+            return_value=minimal_config["screening_criteria"][0],
+        ),
+        patch("screener.screener.get_sector_shortlist", return_value=["AAPL", "MSFT"]),
+        patch(
+            "screener.screener.fetch_ohlcv",
+            return_value={"AAPL": sample_df, "MSFT": sample_df},
+        ),
+        patch(
+            "screener.screener.compute_indicators",
+            side_effect=lambda df, ticker: _make_sample_indicators(ticker),
+        ),
+        patch(
+            "screener.screener.apply_criteria",
+            return_value=[
+                {
+                    "ticker": "AAPL",
+                    "score": 0.8,
+                    "indicators": _make_sample_indicators("AAPL"),
+                    "filter_results": {k: True for k in ["trend_filter", "rsi_range", "macd_setup", "volume", "atr_pct"]},
+                }
+            ],
+        ),
+    ):
+        main(top_n=2, date_str="2026-03-27", no_ta=True)
+
+    captured = capsys.readouterr()
+    assert "[Discovery] Fetching top 100 stocks for sector: Technology" in captured.out, (
+        f"Expected '[Discovery] Fetching top 100 stocks for sector: Technology' in stdout.\n"
+        f"Actual stdout:\n{captured.out}"
+    )
+
+
 # ── Test 6: _run_ta_for_ticker marks propagate() failure as ANALYSIS FAILED ───
 
 

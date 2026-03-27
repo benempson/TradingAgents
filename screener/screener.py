@@ -420,6 +420,7 @@ def main(top_n: int = 5, date_str: str | None = None, no_ta: bool = False) -> No
 
         all_tickers: list[str] = []
         for sector in selected_sectors:
+            print(f"[Discovery] Fetching top 100 stocks for sector: {sector['name']}...")
             sector_tickers = get_sector_shortlist(
                 sector_key=sector["id"],
                 yf_sector=sector["yf_sector"],

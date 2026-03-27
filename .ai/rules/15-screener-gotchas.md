@@ -24,7 +24,29 @@ results = yf.screen(
 tickers = [item["symbol"] for item in results.get("quotes", [])]
 ```
 
-Valid volume field: `"dayvolume"` (NOT `"averageDailyVolume3Month"` — rejected by validator).
+Valid volume field: `"dayvolume"` (NOT `"averageDailyVolume3Month"` or `"regularMarketVolume"` — rejected by validator).
+
+**`discovery_criteria.json` — valid EquityQuery field names** (verified against yfinance 1.2.0 validator):
+
+| Intent | Valid field name |
+|---|---|
+| Daily volume | `"dayvolume"` |
+| Avg daily vol (3m) | `"avgdailyvol3m"` |
+| Price % change today | `"percentchange"` |
+| 52-week % change | `"fiftytwowkpercentchange"` |
+| Price-to-book | `"pricebookratio.quarterly"` |
+| P/E ratio | `"peratio.lasttwelvemonths"` |
+| Sector (EQ only) | `"sector"` |
+| Industry (EQ only) | `"industry"` |
+
+**Do NOT use** camelCase names from other yfinance APIs (e.g. `regularMarketVolume`, `priceToBook`, `fiftyTwoWeekChangePercent`) — those are ticker info fields, not screener query fields, and will raise `ValueError` from the `EquityQuery` validator.
+
+## `discovery_criteria.json` filter dicts — conversion to EquityQuery
+Filters in `config/discovery_criteria.json` are stored as plain dicts:
+```json
+{"operator": "GT", "operands": ["percentchange", 0]}
+```
+`screener/discovery.py::_run_screener` converts them to `EquityQuery` instances at runtime (lowercasing the operator). Do NOT store pre-built `EquityQuery` objects in the config.
 
 ## IB Request Delay — Production vs Test
 `IB_REQUEST_DELAY_S` defaults to `0.1` seconds in `data_fetcher.py` for unit-test speed.
@@ -41,7 +63,18 @@ other path characters — they enable path traversal attacks against the cache d
 stays within `realpath(cache_dir) + os.sep`. Never skip this check when modifying
 `CacheStore` — a tampered manifest could redirect reads to arbitrary paths.
 
+## Running the Screener — Module Invocation Required
+**Always run as a module, never as a script:**
+```
+# CORRECT — imports resolve as package
+python -m screener.screener
+
+# WRONG — Python treats screener.py as the 'screener' module, breaking all internal imports
+python screener/screener.py
+```
+`screener/` must also be listed in `pyproject.toml` `[tool.setuptools.packages.find] include` alongside `tradingagents*` and `cli*`, otherwise `pip install -e .` won't register it as an importable package.
+
 ## Config Path Resolution
 `screener/screener.py` resolves config via `Path(__file__).parent.parent / "config"`.
-Always run the screener from the project root or via `python screener/screener.py`.
+Always run the screener from the project root or via `python -m screener.screener`.
 Do not move `screener/` without updating `CONFIG_DIR`.

@@ -74,6 +74,18 @@ python screener/screener.py
 ```
 `screener/` must also be listed in `pyproject.toml` `[tool.setuptools.packages.find] include` alongside `tradingagents*` and `cli*`, otherwise `pip install -e .` won't register it as an importable package.
 
+## `fetch_ohlcv` Three-Loop Ticker Lifecycle
+`fetch_ohlcv` processes tickers across three sequential fallback loops (IB → AV → yfinance).
+A ticker can appear in **multiple** lists:
+- `pending_after_cache` → all cache misses
+- `pending_after_ib` → cache misses that IB didn't return data for
+- `pending_after_av` → IB+AV misses that fall through to yfinance
+
+**Any counter or side-effect (print, increment, metric) placed at the TOP of the AV loop
+will fire again in the yfinance loop for tickers that fail AV.** Always place per-ticker
+side-effects either in the success branch of each source, or exclusively in the final
+yfinance loop (which sees every non-IB-success, non-AV-success ticker exactly once).
+
 ## Config Path Resolution
 `screener/screener.py` resolves config via `Path(__file__).parent.parent / "config"`.
 Always run the screener from the project root or via `python -m screener.screener`.

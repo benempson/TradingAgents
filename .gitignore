@@ -227,3 +227,5 @@ __marimo__/
 
 # Cache
 **/data_cache/
+/AGENT.local.md
+/temp/screener

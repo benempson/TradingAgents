@@ -211,7 +211,7 @@ class ChatClaudeCode(BaseChatModel):
             self.cli_path, "--print",
             "--model", self.model_name,
             "--tools", "",               # disable built-in CC tools (Bash/Edit/Read)
-            "--no-session-persistence",  # don't save chat history to disk
+            # "--no-session-persistence",  # don't save chat history to disk
             "--system-prompt", _CLI_SYSTEM_PREAMBLE,
         ]
 

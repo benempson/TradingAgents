@@ -1193,5 +1193,58 @@ def analyze():
     run_analysis()
 
 
+@app.command()
+def report(
+    json_file: str = typer.Argument(..., help="Path to a JSON log file from a previous analysis run."),
+    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="Directory to write report files to. Defaults to same directory as the JSON file."),
+    fmt: str = typer.Option("both", "--format", "-f", help="Output format: md, html, or both."),
+    summarise: bool = typer.Option(False, "--summarise", "--summarize", help="Generate LLM-powered section summaries."),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider for summarisation (e.g. openai, anthropic, claude_code)."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="LLM model name for summarisation."),
+):
+    """Render a human-readable report from a JSON analysis log file."""
+    from tradingagents.reporting import render_report
+
+    source_path = Path(json_file)
+    if not source_path.exists():
+        console.print(f"[red]Error:[/red] File not found: {json_file}")
+        raise typer.Exit(code=1)
+
+    if output_dir is None:
+        output_dir = str(source_path.parent)
+
+    llm = None
+    if summarise:
+        try:
+            from tradingagents.llm_clients import create_llm_client
+
+            config = DEFAULT_CONFIG.copy()
+            llm_provider = provider or config.get("llm_provider", "openai")
+            llm_model = model or config.get("quick_think_llm", "gpt-5-mini")
+            client = create_llm_client(provider=llm_provider, model=llm_model)
+            llm = client.get_llm()
+            console.print(f"[dim]Using {llm_provider}/{llm_model} for summarisation[/dim]")
+        except Exception as exc:
+            console.print(f"[yellow]Warning:[/yellow] Could not create LLM for summarisation: {exc}")
+            console.print("[dim]Proceeding without summaries.[/dim]")
+
+    try:
+        result = render_report(
+            state_or_path=str(source_path),
+            output_dir=output_dir,
+            fmt=fmt,
+            summarise=summarise,
+            llm=llm,
+        )
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    if result.get("md"):
+        console.print(f"[green]Markdown report:[/green] {result['md']}")
+    if result.get("html"):
+        console.print(f"[green]HTML report:[/green] {result['html']}")
+
+
 if __name__ == "__main__":
     app()

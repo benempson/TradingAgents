@@ -290,3 +290,62 @@ class TradingAgentsGraph:
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
         return self.signal_processor.process_signal(full_signal)
+
+    def render_report(
+        self,
+        source: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        fmt: str = "both",
+        summarise: bool = False,
+    ) -> Dict[str, Any]:
+        """Render a human-readable report from a JSON log file or the last propagation result.
+
+        Args:
+            source: Path to a JSON log file. If None, uses the state from
+                the last propagate() call.
+            output_dir: Directory to write report files to. Defaults to
+                {results_dir}/{ticker}/{trade_date}/.
+            fmt: Output format — "md", "html", or "both".
+            summarise: If True, use the quick_thinking_llm to generate
+                section summaries.
+
+        Returns:
+            Dict with keys "md" and "html", each mapping to the written
+            Path or None if that format was not requested.
+
+        Raises:
+            RuntimeError: If no source is provided and propagate() has
+                not been called yet.
+        """
+        if source is not None:
+            state_or_path = source
+        elif self.curr_state is not None:
+            state_or_path = self.curr_state
+        else:
+            raise RuntimeError(
+                "Cannot render report: no source file provided and "
+                "propagate() has not been called yet."
+            )
+
+        if output_dir is None:
+            from pathlib import Path as _Path
+            results = self.config.get("results_dir", "./results")
+            if self.curr_state is not None:
+                trade_date = self.curr_state.get("trade_date", "unknown")
+            else:
+                trade_date = "unknown"
+            ticker = self.ticker or "unknown"
+            output_dir = str(
+                _Path(results) / ticker / trade_date
+            )
+
+        from tradingagents.reporting import render_report as _render_report
+
+        llm = self.quick_thinking_llm if summarise else None
+        return _render_report(
+            state_or_path,
+            output_dir=output_dir,
+            fmt=fmt,
+            summarise=summarise,
+            llm=llm,
+        )

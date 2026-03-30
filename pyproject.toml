@@ -30,6 +30,7 @@ dependencies = [
     "stockstats>=0.6.5",
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
+    "Jinja2>=3.1",
     "yfinance>=0.2.63",
 ]
 
@@ -41,3 +42,4 @@ include = ["tradingagents*", "cli*", "screener*"]
 
 [tool.setuptools.package-data]
 cli = ["static/*"]
+"tradingagents.reporting" = ["templates/*"]

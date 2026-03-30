@@ -1,5 +1,5 @@
 # PROJECT_SUMMARY.md — TradingAgents File & Folder Reference
-> Last updated: 2026-03-27
+> Last updated: 2026-03-30
 
 ## 1. Project Overview
 
@@ -19,7 +19,7 @@
 The codebase enforces a strict one-way dependency direction:
 
 ```
-dataflows/  ←  agents/  ←  graph/
+dataflows/  ←  agents/  ←  graph/  →  reporting/
                               ↑
                          llm_clients/
 ```
@@ -33,6 +33,8 @@ dataflows/  ←  agents/  ←  graph/
 3. **`llm_clients/`** — LLM provider abstraction. All instantiation flows through `create_llm_client(provider, model, base_url)`. Each provider has a `BaseLLMClient` subclass and a `Normalized*` wrapper that strips reasoning/metadata via `normalize_content()`.
 
 4. **`graph/`** — LangGraph wiring. Constructs the `StateGraph`, adds nodes and edges, and compiles it. Uses both `agents/` and `llm_clients/`. Not imported by any other layer.
+
+5. **`reporting/`** — Presentation layer. Converts a `final_state` dict or JSON log file into Markdown and/or HTML reports with collapsible sections and optional LLM-powered summaries. Pure leaf module — imported by `graph/` and `cli/`, imports nothing from `tradingagents/` except `default_config`.
 
 ### Provider Factory
 
@@ -54,7 +56,8 @@ TradingAgents/
 │   ├── agents/             # All agent node implementations
 │   ├── dataflows/          # Market data fetching & caching
 │   ├── graph/              # LangGraph wiring, orchestration, I/O
-│   └── llm_clients/        # LLM provider abstraction layer
+│   ├── llm_clients/        # LLM provider abstraction layer
+│   └── reporting/          # Report renderer (Markdown + HTML)
 ├── screener/               # Standalone technical screener (pre-filter for ta.propagate)
 │   ├── screener.py         # CLI entry point + orchestrator
 │   ├── discovery.py        # yfinance Screener sector shortlist
@@ -156,6 +159,17 @@ config["llm_provider"] = "claude_code"
 | `agent_utils.py` | LangChain `@tool`-decorated functions that route into `dataflows/interface.py` |
 | `memory.py` | `FinancialSituationMemory` — Redis-backed agent memory for post-trade reflection |
 
+### `tradingagents/reporting/`
+
+| File | Purpose |
+|---|---|
+| `__init__.py` | Public API: `render_report(state_or_path, output_dir, fmt, summarise, llm)` |
+| `renderer.py` | Input normalisation, `ReportData`/`ReportSection` dataclasses, orchestration |
+| `summariser.py` | Optional LLM summarisation with per-section error isolation |
+| `markdown.py` | Markdown output with `<details>/<summary>` collapsible sections |
+| `html.py` | Jinja2-based HTML rendering with responsive CSS |
+| `templates/report.html.j2` | Self-contained HTML template (mobile-friendly, signal badges) |
+
 ### `tradingagents/dataflows/`
 
 | File | Purpose |
@@ -189,12 +203,23 @@ ta = TradingAgentsGraph(
 
 final_state, decision = ta.propagate("AAPL", "2026-03-26")
 # decision: "BUY" | "OVERWEIGHT" | "HOLD" | "UNDERWEIGHT" | "SELL"
+
+# Render report from the just-completed run
+ta.render_report(output_dir="./reports", fmt="both", summarise=True)
+
+# Or render from a saved JSON log file (no propagate() needed)
+ta.render_report(source="eval_results/AAPL/.../full_states_log_2026-03-26.json", output_dir="./reports")
+
+# Or use the standalone function directly
+from tradingagents.reporting import render_report
+render_report("eval_results/AAPL/.../full_states_log_2026-03-26.json", "./reports")
 ```
 
 ### CLI
 
 ```bash
 tradingagents          # interactive prompts
+tradingagents report <json_file> [--output-dir DIR] [--format md|html|both] [--summarise]
 ```
 
 ### Technical Screener (pre-filter before deep TA)

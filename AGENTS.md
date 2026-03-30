@@ -32,7 +32,7 @@ Both directories mirror the same sub-structure (e.g., `llm_clients/`, `agents/`,
 This project follows a strict dependency direction. **DO NOT** create modules that cross these boundaries:
 
 ```
-dataflows/  ←  agents/  ←  graph/
+dataflows/  ←  agents/  ←  graph/  →  reporting/
                               ↑
                          llm_clients/
 ```
@@ -41,6 +41,7 @@ dataflows/  ←  agents/  ←  graph/
 - `agents/` may import from `dataflows/` but never from `graph/`.
 - `graph/` orchestrates both layers but is not imported by either.
 - `llm_clients/` is a standalone layer — imported by `agents/` or `graph/`, never vice versa.
+- `reporting/` is a **leaf presentation layer** — imported by `graph/` and `cli/`, but imports nothing from `tradingagents/` except `default_config`. It receives plain dicts or JSON file paths.
 
 **Forbidden:** Creating a "God Module" that mixes data fetching, agent logic, and LLM wiring. Each module has exactly one responsibility.
 
@@ -51,6 +52,8 @@ dataflows/  ←  agents/  ←  graph/
 TradingAgents (v0.2.2) is a multi-agent LLM framework for financial trading analysis built on **LangGraph** + **LangChain**. A directed acyclic graph of specialised agents (analysts, researchers, traders, risk managers) collaborates to produce a final BUY / OVERWEIGHT / HOLD / UNDERWEIGHT / SELL decision for a given ticker and date.
 
 **Technical Screener (`screener/`):** A standalone pre-filter CLI tool that identifies technically interesting candidates before committing them to `ta.propagate()`. It runs a two-stage pipeline — sector/watchlist discovery → OHLCV fetch → indicator computation → hard filter + composite score — and optionally hands survivors to the LLM graph. It imports from `tradingagents/` read-only and does not modify any existing layer. See `docs/refs/screener/screener-ref.md` for the operational reference.
+
+**Report Renderer (`tradingagents/reporting/`):** A standalone presentation module that converts agent output (a `final_state` dict or a JSON log file) into human-readable Markdown and/or HTML reports. Features collapsible `<details>` sections for full transcripts, optional LLM-powered summarisation (gracefully degrades if the LLM is unavailable), mobile-friendly responsive HTML via Jinja2, and colour-coded signal badges. Entry points: `render_report()` Python API, `ta.render_report()` on `TradingAgentsGraph`, and `tradingagents report` CLI command.
 
 ---
 
@@ -66,6 +69,7 @@ TradingAgents (v0.2.2) is a multi-agent LLM framework for financial trading anal
 | Market data | `yfinance` | ≥ 0.2.63 |
 | Technical indicators | `stockstats` | ≥ 0.6.5 |
 | CLI | `typer` + `rich` | ≥ 0.21.0 / 14.0.0 |
+| Report templating | `Jinja2` | ≥ 3.1 |
 | Python | | ≥ 3.10 |
 
 Install: `pip install -e .`
@@ -283,6 +287,7 @@ The `claude_code` provider requires **none** of the above API keys.
 | `IB_CLIENT_ID` | `10` | IB client ID |
 | `IB_REQUEST_DELAY_S` | `0.1` (set to `10` in production) | Inter-request IB sleep; default is test-safe, not production-safe |
 | `SCREENER_TOP_N` | `5` | Default `--top-n` value for the screener CLI |
+| `SCREENER_TA_PROVIDER` | *(auto-detect)* | Force a specific LLM provider for the TA deep analysis step (`openai`, `anthropic`, `google`, `claude_code`). If unset, auto-detects from API key env vars; falls back to `claude_code`. |
 
 ---
 
